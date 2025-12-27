@@ -1,42 +1,45 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <title>Gemini 问答</title>
+  <meta charset="utf-8" />
+  <title>MyAgent 前端</title>
 </head>
 <body>
+  <h2>MyAgent 前端（GitHub Pages）</h2>
 
-<h2>Gemini 问答测试</h2>
+  <textarea id="q" rows="6" cols="70" placeholder="输入问题，例如：用中文解释 REST API"></textarea>
+  <br><br>
+  <button onclick="ask()">提问</button>
 
-<textarea id="question" rows="5" cols="60" placeholder="请输入你的问题"></textarea>
-<br><br>
-<button onclick="ask()">提交</button>
+  <h3>回答：</h3>
+  <pre id="ans"></pre>
 
-<h3>回答：</h3>
-<pre id="answer"></pre>
+  <script>
+    const API_BASE = "https://myagent-mhrq.onrender.com";
 
-<script>
-    function ask() {
-        const question = document.getElementById("question").value;
+    async function ask() {
+      const question = document.getElementById("q").value.trim();
+      document.getElementById("ans").textContent = "请求中...";
 
-        fetch("/ask", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                question: question
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById("answer").innerText = data.answer;
-        })
-        .catch(err => {
-            alert("请求失败：" + err);
+      try {
+        const resp = await fetch(`${API_BASE}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
         });
-    }
-</script>
 
+        // 如果后端报错，先把状态码显示出来
+        if (!resp.ok) {
+          const t = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${t}`);
+        }
+
+        const data = await resp.json();
+        document.getElementById("ans").textContent = data.answer ?? "(无 answer 字段)";
+      } catch (e) {
+        document.getElementById("ans").textContent = "失败：" + e.message;
+      }
+    }
+  </script>
 </body>
 </html>

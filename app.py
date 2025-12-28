@@ -11,8 +11,11 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://iehmltym.github.io"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 llm = MyGeminiLLM()
@@ -46,3 +49,4 @@ def index():
 def ask_question(req: QuestionRequest):
     answer = llm.generate(req.question, max_output_tokens=2048)  # 避免只返回半句
     return JSONResponse({"answer": answer})
+

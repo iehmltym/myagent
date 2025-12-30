@@ -98,3 +98,29 @@ class MyGeminiLLM:
 
         # resp.text：SDK 帮你拼好的纯文本输出（若为空则返回空字符串）
         return resp.text or ""
+
+    def generate_stream(self, prompt: str, **kwargs: Any):
+        """
+        流式生成文本的统一入口。
+        :param prompt: 用户输入文本
+        :param kwargs: 允许调用者覆盖生成参数，例如 temperature=0.2
+        :return: 逐块产出的文本片段
+        """
+
+        generation_config: Dict[str, Any] = {
+            "temperature": kwargs.get("temperature", self.config.temperature),
+            "max_output_tokens": kwargs.get("max_output_tokens", self.config.max_output_tokens),
+            "top_p": kwargs.get("top_p", self.config.top_p),
+            "top_k": kwargs.get("top_k", self.config.top_k),
+        }
+
+        stream = self.model.generate_content(
+            prompt,
+            generation_config=generation_config,
+            stream=True,
+        )
+
+        for chunk in stream:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text

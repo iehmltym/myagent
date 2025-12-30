@@ -1,7 +1,6 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -71,7 +70,10 @@ def ask_question(req: QuestionRequest):
     question = req.question
     # 规则 1：如果问题中出现“现在几点”或“今天日期”，直接返回当前时间
     if "现在几点" in question or "今天日期" in question:
-        return JSONResponse({"answer": get_time()})
+        def time_stream():
+            yield get_time()
+
+        return StreamingResponse(time_stream(), media_type="text/plain; charset=utf-8")
 
     # 规则 2：如果问题符合 “a+b=?” 形式，解析出 a、b 并计算
     # 说明：下面这个正则允许空格和小数，比如 " 1 + 2 = ? "
@@ -81,7 +83,10 @@ def ask_question(req: QuestionRequest):
         left = float(math_match.group(1))
         right = float(math_match.group(2))
         # 计算完成后直接返回，避免走 LLM
-        return JSONResponse({"answer": str(add(left, right))})
+        def math_stream():
+            yield str(add(left, right))
+
+        return StreamingResponse(math_stream(), media_type="text/plain; charset=utf-8")
 
     # 如果前端传了 system_prompt，就用它；
     # 否则使用默认的可爱语气 prompt。
@@ -101,10 +106,15 @@ def ask_question(req: QuestionRequest):
     # 拼接本次问题，提示模型继续回复助手内容
     prompt = f"{history_prompt}用户：{req.question}\n助手："
     # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
-    answer = active_llm.generate(prompt, max_output_tokens=2048)  # 避免只返回半句
-    if session_id:
-        # 仅当 session_id 有效时才记录历史，避免无意义的全局堆积
-        history.append((req.question, answer))
-    # 返回格式保持 {"answer": ...}，确保前端兼容
-    return JSONResponse({"answer": answer})
+    def answer_stream():
+        answer_parts = []
+        for chunk in active_llm.generate_stream(prompt, max_output_tokens=2048):
+            answer_parts.append(chunk)
+            yield chunk
+        if session_id:
+            answer = "".join(answer_parts)
+            # 仅当 session_id 有效时才记录历史，避免无意义的全局堆积
+            history.append((req.question, answer))
+
+    return StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
 

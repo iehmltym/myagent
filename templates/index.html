@@ -19,7 +19,8 @@
 
     async function ask() {
       const question = document.getElementById("q").value.trim();
-      document.getElementById("ans").textContent = "请求中...";
+      const ansEl = document.getElementById("ans");
+      ansEl.textContent = "请求中...";
 
       try {
         const resp = await fetch(`${API_BASE}/ask`, {
@@ -34,10 +35,23 @@
           throw new Error(`HTTP ${resp.status}: ${t}`);
         }
 
-        const data = await resp.json();
-        document.getElementById("ans").textContent = data.answer ?? "(无 answer 字段)";
+        ansEl.textContent = "";
+        if (!resp.body) {
+          const text = await resp.text();
+          ansEl.textContent = text || "(无返回内容)";
+          return;
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          ansEl.textContent += decoder.decode(value, { stream: true });
+        }
       } catch (e) {
-        document.getElementById("ans").textContent = "失败：" + e.message;
+        ansEl.textContent = "失败：" + e.message;
       }
     }
   </script>

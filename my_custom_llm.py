@@ -24,3 +24,13 @@ class MyCustomGeminiLLM(MyGeminiLLM):
 
         # 调用父类 generate 实际请求 Gemini
         return super().generate(final_prompt, **kwargs)
+
+    def generate_stream(self, prompt: str, **kwargs: Any):
+        # 如果 prefix 非空，把 prefix + 用户输入拼成最终 prompt
+        if self.prefix:
+            final_prompt = f"{self.prefix}\n\n用户：{prompt}\n助手："
+        else:
+            final_prompt = prompt
+
+        # 调用父类 generate_stream 实际请求 Gemini
+        return super().generate_stream(final_prompt, **kwargs)

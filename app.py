@@ -1,16 +1,20 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
+
 from pydantic import BaseModel
 
 from my_llm import MyGeminiLLM
+from my_custom_llm import MyCustomGeminiLLM
 
 app = FastAPI()
 
-# 允许你的 GitHub Pages 调用（先精确放行你的域名）
+# 允许你的 GitHub Pages 调用（/ai 仍属于同一域名）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://iehmltym.github.io"],
+    allow_origin_regex=r"https://iehmltym\.github\.io$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -18,10 +22,17 @@ app.add_middleware(
     max_age=86400,
 )
 
+# 全局默认的 LLM 实例（不带 system prompt 的情况使用它）
 llm = MyGeminiLLM()
+# 默认的可爱语气 system prompt（当用户未提供时使用）
+DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
 
 class QuestionRequest(BaseModel):
+    # 用户输入的问题文本
     question: str
+    # 可选的 system prompt，用来影响模型输出风格
+    # 如果不传或传空字符串，就会走默认的 MyGeminiLLM
+    system_prompt: Optional[str] = None
 
 
 @app.get("/health")
@@ -47,6 +58,13 @@ def index():
 
 @app.post("/ask")
 def ask_question(req: QuestionRequest):
-    answer = llm.generate(req.question, max_output_tokens=2048)  # 避免只返回半句
+    # 如果前端传了 system_prompt，就用它；
+    # 否则使用默认的可爱语气 prompt。
+    system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
+    # 始终用自定义 LLM 包装器注入 system prompt，让回答保持可爱风格
+    active_llm = MyCustomGeminiLLM(prefix=system_prompt)
+    # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
+    answer = active_llm.generate(req.question, max_output_tokens=2048)  # 避免只返回半句
+    # 返回格式保持 {"answer": ...}，确保前端兼容
     return JSONResponse({"answer": answer})
 

@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import re
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -11,6 +12,9 @@ from my_custom_llm import MyCustomGeminiLLM
 from tools import add, get_time
 
 app = FastAPI()
+# 会话历史字典：key 是 session_id，value 是 [(question, answer), ...]
+# 用于在多轮对话中保留上下文，便于拼接成连续对话的 prompt
+sessions: Dict[str, List[Tuple[str, str]]] = {}
 
 # 允许你的 GitHub Pages 调用（/ai 仍属于同一域名）
 app.add_middleware(
@@ -35,6 +39,9 @@ class QuestionRequest(BaseModel):
     # 可选的 system prompt，用来影响模型输出风格
     # 如果不传或传空字符串，就会走默认的 MyGeminiLLM
     system_prompt: Optional[str] = None
+    # 会话 ID：用于区分不同用户/对话的上下文
+    # 为空时表示单轮请求，不记录历史
+    session_id: Optional[str] = None
 
 
 @app.get("/health")
@@ -81,8 +88,23 @@ def ask_question(req: QuestionRequest):
     system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
     # 始终用自定义 LLM 包装器注入 system prompt，让回答保持可爱风格
     active_llm = MyCustomGeminiLLM(prefix=system_prompt)
+    # 规范化 session_id（去掉首尾空白），避免同一会话被当成多个 key
+    session_id = req.session_id.strip() if req.session_id else None
+    # 获取该会话的历史；若不存在则初始化为空列表
+    # 未提供 session_id 时视为单轮对话，不读取/写入历史
+    history = sessions.setdefault(session_id, []) if session_id else []
+    # 将历史记录拼成连续对话的 prompt，格式如：
+    # 用户：... \n 助手：... \n 用户：... \n 助手：...
+    history_prompt = "".join(
+        f"用户：{question}\n助手：{response}\n" for question, response in history
+    )
+    # 拼接本次问题，提示模型继续回复助手内容
+    prompt = f"{history_prompt}用户：{req.question}\n助手："
     # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
-    answer = active_llm.generate(question, max_output_tokens=2048)  # 避免只返回半句
+    answer = active_llm.generate(prompt, max_output_tokens=2048)  # 避免只返回半句
+    if session_id:
+        # 仅当 session_id 有效时才记录历史，避免无意义的全局堆积
+        history.append((req.question, answer))
     # 返回格式保持 {"answer": ...}，确保前端兼容
     return JSONResponse({"answer": answer})
 

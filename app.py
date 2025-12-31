@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from knowledge_base import blueprint_payload, retrieve_documents
 from my_custom_llm import MyCustomGeminiLLM
 from tools import add, get_date, get_time, make_uuid, safe_eval_expression, text_stats
 
@@ -40,6 +41,47 @@ app.add_middleware(
 
 # 默认的可爱语气 system prompt（当用户未提供时使用）
 DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
+ADVISOR_SYSTEM_PROMPT = (
+    "你是资深 AI 架构顾问，擅长 LangChain/Agent/RAG 项目落地。"
+    "请用中文回答，结构必须包含："
+    "1) 核心能力（LangChain 能做什么）"
+    "2) 很强的典型用法（落到真实项目）"
+    "3) Render 512MB 免费实例的落地建议"
+    "4) 项目下一步高价值升级"
+    "给出清晰的小标题和要点列表，语气专业、直接。"
+)
+ROADMAP_FEATURES = [
+    {
+        "title": "📁 拖拽文件上传（文档问答）",
+        "desc": "前端支持拖拽 PDF/Markdown/TXT，后端只做轻量解析与上传存储。",
+        "impact": "上传解析会占用内存，建议离线处理或异步队列。",
+    },
+    {
+        "title": "🎙️ 语音输入 / 语音输出",
+        "desc": "浏览器端录音 → 语音识别（STT）→ LLM 回复 → 语音合成（TTS）。",
+        "impact": "建议前端调用第三方 STT/TTS，服务器只转发结果。",
+    },
+    {
+        "title": "🧠 RAG 知识库更新入口",
+        "desc": "提供上传/同步入口，触发离线 embedding 更新索引。",
+        "impact": "512MB 实例只负责检索，向量库放外部托管。",
+    },
+    {
+        "title": "🧭 智能 Router",
+        "desc": "简单问题走轻模型，复杂问题走强模型 + 检索链。",
+        "impact": "可显著降成本，适合免费实例。",
+    },
+    {
+        "title": "🧩 轻量 Agent 工具箱",
+        "desc": "限定少量高确定性工具（搜索/计算/DB 查询），防止发散。",
+        "impact": "限制工具数量，减少 token 与延迟。",
+    },
+    {
+        "title": "📊 轻量观测 + 导出",
+        "desc": "支持导出请求日志/命中情况，便于排查回答质量。",
+        "impact": "日志落盘 + 轮转，避免占用内存。",
+    },
+]
 
 
 class QuestionRequest(BaseModel):
@@ -55,6 +97,8 @@ class QuestionRequest(BaseModel):
     stream: bool = True
     # 是否返回元信息（如缓存命中、耗时等）
     include_meta: bool = False
+    # 运行模式：默认空；"advisor" 表示架构建议；"rag" 表示检索增强
+    mode: Optional[str] = None
 
 
 class SessionRequest(BaseModel):
@@ -68,18 +112,21 @@ def health():
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    # 不依赖 templates 文件，避免 Render 上找不到文件导致异常
-    return """
-    <!doctype html>
-    <html lang="zh">
-    <head><meta charset="utf-8"><title>MyAgent API</title></head>
-    <body>
-      <h2>MyAgent API is running</h2>
-      <p>Health: <a href="/health">/health</a></p>
-      <p>Use <code>POST /ask</code> with JSON: {"question":"..."}</p>
-    </body>
-    </html>
-    """
+    template_path = "templates/index.html"
+    try:
+        return FileResponse(template_path)
+    except FileNotFoundError:
+        return """
+        <!doctype html>
+        <html lang="zh">
+        <head><meta charset="utf-8"><title>MyAgent API</title></head>
+        <body>
+          <h2>MyAgent API is running</h2>
+          <p>Health: <a href="/health">/health</a></p>
+          <p>Use <code>POST /ask</code> with JSON: {"question":"..."}</p>
+        </body>
+        </html>
+        """
 
 
 @app.get("/features")
@@ -98,6 +145,10 @@ def features() -> Dict[str, Any]:
             "max_sessions": MAX_SESSIONS,
             "cache_size": MAX_CACHE_ITEMS,
         },
+        "modes": [
+            {"id": "advisor", "desc": "架构建议模式：按固定结构输出升级建议"},
+            {"id": "rag", "desc": "检索增强模式：结合内置资料输出"},
+        ],
     }
 
 
@@ -108,6 +159,16 @@ def stats() -> Dict[str, Any]:
         "cache": {"size": len(answer_cache), **cache_stats},
         "sessions": {"active": len(sessions), "max": MAX_SESSIONS},
     }
+
+
+@app.get("/blueprint")
+def blueprint() -> Dict[str, Any]:
+    return blueprint_payload()
+
+
+@app.get("/roadmap")
+def roadmap() -> Dict[str, Any]:
+    return {"features": ROADMAP_FEATURES}
 
 
 @app.post("/session/clear")
@@ -255,6 +316,21 @@ def ask_question(req: QuestionRequest):
     # 如果前端传了 system_prompt，就用它；
     # 否则使用默认的可爱语气 prompt。
     system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
+    mode = (req.mode or "").strip().lower()
+    rag_context = ""
+    rag_meta: Dict[str, Any] = {}
+    if mode in {"advisor", "rag"}:
+        if not req.system_prompt:
+            system_prompt = ADVISOR_SYSTEM_PROMPT
+        rag_docs = retrieve_documents(question, top_k=4)
+        if rag_docs:
+            rag_context = "\n\n".join(
+                f"[{index + 1}] {doc['title']}\n{doc['content']}" for index, doc in enumerate(rag_docs)
+            )
+            rag_meta = {
+                "rag_docs": [doc["title"] for doc in rag_docs],
+                "rag_count": len(rag_docs),
+            }
     # 始终用自定义 LLM 包装器注入 system prompt，让回答保持可爱风格
     active_llm = MyCustomGeminiLLM(prefix=system_prompt)
     # 规范化 session_id（去掉首尾空白），避免同一会话被当成多个 key
@@ -268,13 +344,20 @@ def ask_question(req: QuestionRequest):
         f"用户：{user_question}\n助手：{response}\n" for user_question, response in history
     )
     # 拼接本次问题，提示模型继续回复助手内容
-    prompt = f"{history_prompt}用户：{req.question}\n助手："
+    if rag_context:
+        prompt = (
+            f"{history_prompt}用户：{req.question}\n\n"
+            f"请参考以下资料作答（不要逐字复述，保持结构化输出）：\n{rag_context}\n\n"
+            "助手："
+        )
+    else:
+        prompt = f"{history_prompt}用户：{req.question}\n助手："
     # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
     cache_key = (system_prompt, question)
     if not session_id:
         cached_answer = _cache_get(cache_key)
         if cached_answer is not None:
-            return respond_text(cached_answer, meta=build_meta("cache", True))
+            return respond_text(cached_answer, meta=build_meta("cache", True, rag_meta))
 
     if not stream:
         answer = active_llm.generate(prompt, max_output_tokens=2048)
@@ -282,7 +365,10 @@ def ask_question(req: QuestionRequest):
         if not session_id:
             _cache_set(cache_key, answer)
         update_history(session_id, answer)
-        return respond_text(answer, meta=build_meta("llm", False, {"model": active_llm.model_name}))
+        return respond_text(
+            answer,
+            meta=build_meta("llm", False, {"model": active_llm.model_name, **rag_meta}),
+        )
 
     def answer_stream():
         answer_parts = []

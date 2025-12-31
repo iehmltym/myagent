@@ -1,6 +1,7 @@
 from dataclasses import dataclass          # dataclass：快速定义“配置类”，自动生成 __init__ 等
 from typing import Optional, Dict, Any, List  # 类型提示：让代码更清晰（运行不依赖它们）
-import google.generativeai as genai        # Google Gemini SDK（官方库）
+from google import genai
+from google.genai import types
 from env_utils import load_google_api_key  # 导入我们写的函数：读取 API Key
 
 
@@ -26,7 +27,7 @@ class MyGeminiLLM:
 
     _configured: bool = False
     _shared_model_name: Optional[str] = None
-    _shared_model: Optional[genai.GenerativeModel] = None
+    _shared_client: Optional[genai.Client] = None
 
     def __init__(self, config: Optional[GeminiConfig] = None):
         # 如果外部传了 config，就用外部的；否则使用默认 GeminiConfig()
@@ -35,19 +36,15 @@ class MyGeminiLLM:
         if not MyGeminiLLM._configured:
             # 配置 SDK：把 API Key 告诉 genai（内部会用于请求鉴权）
             # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
-            genai.configure(api_key=load_google_api_key())
+            MyGeminiLLM._shared_client = genai.Client(api_key=load_google_api_key())
             MyGeminiLLM._configured = True
 
         if not MyGeminiLLM._shared_model_name:
             # 自动选择一个当前账号可用且支持 generateContent 的模型名
             MyGeminiLLM._shared_model_name = self._select_available_model()
 
-        if not MyGeminiLLM._shared_model:
-            # 用选择到的模型名创建模型对象
-            MyGeminiLLM._shared_model = genai.GenerativeModel(MyGeminiLLM._shared_model_name)
-
         self.model_name = MyGeminiLLM._shared_model_name
-        self.model = MyGeminiLLM._shared_model
+        self.client = MyGeminiLLM._shared_client
 
     def _select_available_model(self) -> str:
         """
@@ -58,7 +55,7 @@ class MyGeminiLLM:
         candidates: List[str] = []  # 存放候选模型名
 
         # genai.list_models()：向 Google 请求“当前 API Key 可用的模型列表”
-        for m in genai.list_models():
+        for m in self.client.models.list():
             # 每个模型对象通常有 supported_generation_methods 属性
             # 可能是 ['generateContent', ...]
             methods = getattr(m, "supported_generation_methods", []) or []
@@ -92,19 +89,20 @@ class MyGeminiLLM:
 
         # generation_config：本次生成的参数
         # kwargs 优先级更高：外部传了就覆盖默认 config
-        generation_config: Dict[str, Any] = {
-            "temperature": kwargs.get("temperature", self.config.temperature),
-            "max_output_tokens": kwargs.get("max_output_tokens", self.config.max_output_tokens),
-            "top_p": kwargs.get("top_p", self.config.top_p),
-            "top_k": kwargs.get("top_k", self.config.top_k),
-        }
+        generation_config = types.GenerateContentConfig(
+            temperature=kwargs.get("temperature", self.config.temperature),
+            max_output_tokens=kwargs.get("max_output_tokens", self.config.max_output_tokens),
+            top_p=kwargs.get("top_p", self.config.top_p),
+            top_k=kwargs.get("top_k", self.config.top_k),
+        )
 
         # 调用 Gemini 的生成接口：
         # - prompt：你要问的问题
         # - generation_config：控制输出风格/长度
-        resp = self.model.generate_content(
-            prompt,
-            generation_config=generation_config
+        resp = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=generation_config,
         )
 
         # resp.text：SDK 帮你拼好的纯文本输出（若为空则返回空字符串）
@@ -118,17 +116,17 @@ class MyGeminiLLM:
         :return: 逐块产出的文本片段
         """
 
-        generation_config: Dict[str, Any] = {
-            "temperature": kwargs.get("temperature", self.config.temperature),
-            "max_output_tokens": kwargs.get("max_output_tokens", self.config.max_output_tokens),
-            "top_p": kwargs.get("top_p", self.config.top_p),
-            "top_k": kwargs.get("top_k", self.config.top_k),
-        }
+        generation_config = types.GenerateContentConfig(
+            temperature=kwargs.get("temperature", self.config.temperature),
+            max_output_tokens=kwargs.get("max_output_tokens", self.config.max_output_tokens),
+            top_p=kwargs.get("top_p", self.config.top_p),
+            top_k=kwargs.get("top_k", self.config.top_k),
+        )
 
-        stream = self.model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            stream=True,
+        stream = self.client.models.generate_content_stream(
+            model=self.model_name,
+            contents=prompt,
+            config=generation_config,
         )
 
         for chunk in stream:

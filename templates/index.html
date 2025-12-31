@@ -153,7 +153,9 @@
     }
 
     textarea,
-    input[type="text"] {
+    input[type="text"],
+    input[type="number"],
+    select {
       width: 100%;
       border: 1px solid rgba(255, 255, 255, 0.9);
       border-radius: 12px;
@@ -170,7 +172,9 @@
     }
 
     textarea:focus,
-    input[type="text"]:focus {
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    select:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 4px rgba(255, 122, 217, 0.2);
     }
@@ -443,6 +447,12 @@
       font-size: 12px;
       color: var(--muted);
     }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
@@ -504,6 +514,16 @@
           <strong>指令 & 工具预热</strong>
           <p>快捷命令 + 安全工具，便于扩展 Agent。</p>
         </div>
+        <div class="feature-card">
+          <span>🧪</span>
+          <strong>Provider 抽象</strong>
+          <p>同一套接口切换 OpenAI / Gemini / Anthropic / Ollama。</p>
+        </div>
+        <div class="feature-card">
+          <span>🧷</span>
+          <strong>Prompt 组件化</strong>
+          <p>PromptTemplate + Messages 可复用可版本化。</p>
+        </div>
       </div>
     </div>
 
@@ -547,6 +567,8 @@
         <label class="toggle"><input id="meta" type="checkbox" /> 显示元信息</label>
         <label class="toggle"><input id="advisor" type="checkbox" checked /> 架构建议模式</label>
         <label class="toggle"><input id="rag" type="checkbox" checked /> RAG 资料增强</label>
+        <label class="toggle"><input id="enableTools" type="checkbox" checked /> 工具调用</label>
+        <label class="toggle"><input id="enableRouter" type="checkbox" checked /> Router 自动路由</label>
         <button onclick="ask()">提问</button>
         <button class="ghost" onclick="clearSession()">清空会话</button>
         <span class="status">
@@ -559,6 +581,42 @@
         <button class="ghost" onclick="fillRagPrompt()">一键 RAG 资料型提问</button>
       </div>
       <p class="muted">提示：开启“元信息”时会自动关闭流式输出；架构建议模式会按固定结构输出。</p>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">🧠 LLM 控制面板</h3>
+      <p class="section-subtitle">统一配置 Provider、温度、token、回退与重试策略。</p>
+      <div class="grid">
+        <div>
+          <label for="provider">Provider</label>
+          <select id="provider"></select>
+          <p class="form-hint">建议使用 auto，由 Router 自动选择。</p>
+        </div>
+        <div>
+          <label for="temperature">Temperature</label>
+          <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7" />
+        </div>
+        <div>
+          <label for="maxTokens">Max tokens</label>
+          <input id="maxTokens" type="number" min="128" max="4096" step="128" value="2048" />
+        </div>
+        <div>
+          <label for="topP">Top-p</label>
+          <input id="topP" type="number" min="0" max="1" step="0.05" value="1" />
+        </div>
+        <div>
+          <label for="topK">Top-k</label>
+          <input id="topK" type="number" min="1" max="40" step="1" value="1" />
+        </div>
+        <div>
+          <label for="retries">重试次数</label>
+          <input id="retries" type="number" min="1" max="3" step="1" value="1" />
+        </div>
+      </div>
+      <div class="row">
+        <label for="fallback" style="flex:1">回退 Provider（逗号分隔）</label>
+        <input id="fallback" type="text" placeholder="例如：openai,anthropic" style="flex:2" />
+      </div>
     </div>
 
     <div class="card">
@@ -576,6 +634,12 @@
       <label>极速指令（后端本地执行）</label>
       <div id="commands" class="pill-list"></div>
       <p class="muted">点击指令可自动填充到输入框。</p>
+    </div>
+
+    <div class="card">
+      <label>链式流程（Chains）</label>
+      <div id="chainSteps" class="pill-list"></div>
+      <p class="muted">预处理 → 工具 → 检索 → 生成 → 后处理，可扩展分支与并行。</p>
     </div>
 
     <div class="card">
@@ -665,6 +729,23 @@
             document.getElementById("q").value = item.cmd;
           });
           container.appendChild(pill);
+        });
+        const providerSelect = document.getElementById("provider");
+        providerSelect.innerHTML = "";
+        data.providers.forEach((provider) => {
+          const option = document.createElement("option");
+          option.value = provider.id;
+          option.textContent = `${provider.id} · ${provider.desc}`;
+          providerSelect.appendChild(option);
+        });
+        providerSelect.value = "auto";
+        const chainSteps = document.getElementById("chainSteps");
+        chainSteps.innerHTML = "";
+        (data.chains?.steps || []).forEach((step) => {
+          const pill = document.createElement("div");
+          pill.className = "pill";
+          pill.textContent = step;
+          chainSteps.appendChild(pill);
         });
       } catch (e) {
         document.getElementById("commands").textContent = "命令加载失败，请稍后重试。";
@@ -763,6 +844,8 @@
       const metaToggle = document.getElementById("meta");
       const advisorToggle = document.getElementById("advisor");
       const ragToggle = document.getElementById("rag");
+      const toolsToggle = document.getElementById("enableTools");
+      const routerToggle = document.getElementById("enableRouter");
       let stream = streamToggle.checked;
       const includeMeta = metaToggle.checked;
       if (includeMeta) {
@@ -781,7 +864,19 @@
         include_meta: includeMeta,
         session_id: sessionInput.value.trim() || null,
         system_prompt: promptInput.value.trim() || null,
-        mode
+        mode,
+        provider: document.getElementById("provider").value || "auto",
+        temperature: parseFloat(document.getElementById("temperature").value || "0.7"),
+        max_output_tokens: parseInt(document.getElementById("maxTokens").value || "2048", 10),
+        top_p: parseFloat(document.getElementById("topP").value || "1"),
+        top_k: parseInt(document.getElementById("topK").value || "1", 10),
+        retries: parseInt(document.getElementById("retries").value || "1", 10),
+        fallback_providers: document.getElementById("fallback").value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        enable_tools: toolsToggle.checked,
+        enable_router: routerToggle.checked
       };
 
       statusText.textContent = "请求中...";
@@ -815,8 +910,10 @@
           ans.textContent = data.answer ?? "(后端没有返回 answer 字段)";
           if (data.meta) {
             const ragInfo = data.meta.rag_docs ? ` | RAG 文档：${data.meta.rag_docs.join("、")}` : "";
+            const providerInfo = data.meta.provider ? ` | Provider：${data.meta.provider}` : "";
+            const routeInfo = data.meta.route_reason ? ` | 路由：${data.meta.route_reason}` : "";
             metaPanel.textContent =
-              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}`;
+              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}${providerInfo}${routeInfo}`;
           }
         }
 

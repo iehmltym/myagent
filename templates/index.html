@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI 提问小助手</title>
+  <title>AI 架构升级控制台</title>
   <style>
     :root {
       --bg: #fff7ff;
@@ -29,7 +29,7 @@
     }
 
     .wrap {
-      max-width: 1040px;
+      max-width: 1120px;
       margin: 40px auto;
       padding: 0 16px 60px;
       position: relative;
@@ -99,6 +99,11 @@
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 12px;
+    }
+
+    .hero-tags .tag.emphasis {
+      background: rgba(124, 92, 255, 0.15);
+      color: var(--secondary);
     }
 
     .tag {
@@ -363,6 +368,81 @@
       color: var(--muted);
       font-size: 12px;
     }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      margin: 0 0 8px;
+    }
+
+    .section-subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .blueprint-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .blueprint-card {
+      background: rgba(255, 255, 255, 0.88);
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      display: grid;
+      gap: 6px;
+    }
+
+    .blueprint-card h4 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .blueprint-card p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .api-input {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .api-input input {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .action-bar button {
+      font-size: 14px;
+    }
+
+    .log-panel {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 14px;
+      border: 1px dashed rgba(124, 92, 255, 0.3);
+      padding: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -374,62 +454,82 @@
   <div class="wrap">
     <div class="hero">
       <div>
-        <h1>🌸 超萌 AI 提问小助手</h1>
-        <p>把 512MB 的服务器能量都用在「高甜回答」和「闪亮体验」上～</p>
+        <h1>🚀 AI 架构升级控制台</h1>
+        <p>为你的 Agent/RAG 项目输出「结构化建议 + 512MB 落地方案」。</p>
         <p class="muted">后端地址：<code id="apiBase"></code></p>
         <div class="hero-tags">
-          <span class="tag">极度可爱 UI</span>
-          <span class="tag">流式回答</span>
-          <span class="tag">多轮记忆</span>
-          <span class="tag">轻量超快</span>
+          <span class="tag emphasis">架构建议模式</span>
+          <span class="tag">RAG 资料检索</span>
+          <span class="tag">流式输出</span>
+          <span class="tag">轻量观测</span>
         </div>
       </div>
       <div class="hero-art">
-        <div class="mascot">🫧🐰</div>
-        <div class="sparkles">✨ ⚡️ 💗 ✨</div>
-        <p class="muted">萌系模型风格 · 甜度拉满</p>
+        <div class="mascot">🧭🧠</div>
+        <div class="sparkles">✨ ⚡️ 📈 ✨</div>
+        <p class="muted">Render 512MB · 轻量实战</p>
       </div>
     </div>
 
     <div class="card">
-      <label>超强功能总览（前端展示）</label>
+      <label>升级能力总览</label>
       <div class="feature-grid">
         <div class="feature-card">
-          <span>🚀</span>
-          <strong>极速流式输出</strong>
-          <p>响应即时刷新，回答像弹幕一样飘出来。</p>
+          <span>🧩</span>
+          <strong>架构建议模式</strong>
+          <p>按「核心能力 → 典型用法 → 512MB 落地 → 下一步升级」输出。</p>
         </div>
         <div class="feature-card">
-          <span>🧠</span>
-          <strong>多轮记忆对话</strong>
-          <p>用会话 ID 持续记住上下文，不迷路。</p>
-        </div>
-        <div class="feature-card">
-          <span>🎀</span>
-          <strong>萌系提示词引擎</strong>
-          <p>一键注入可爱语气、拟人化表达。</p>
+          <span>🔍</span>
+          <strong>轻量 RAG 检索</strong>
+          <p>内置 LangChain/RAG 资料，快速拼装上下文。</p>
         </div>
         <div class="feature-card">
           <span>⚡️</span>
-          <strong>512MB 轻量模式</strong>
-          <p>前端轻量动效，低内存也能炫酷。</p>
+          <strong>流式体验优化</strong>
+          <p>首 token 更快，适配 Render 免费实例。</p>
         </div>
         <div class="feature-card">
-          <span>🔮</span>
-          <strong>元信息追踪</strong>
-          <p>展示来源、延迟、缓存命中率。</p>
+          <span>🎯</span>
+          <strong>Router 思路提示</strong>
+          <p>简单问题走轻模型，复杂问题走强模型。</p>
         </div>
         <div class="feature-card">
-          <span>🎛️</span>
-          <strong>极速指令面板</strong>
-          <p>后端本地指令快捷触发。</p>
+          <span>🧭</span>
+          <strong>轻量观测面板</strong>
+          <p>请求量、缓存命中、延迟可视化。</p>
+        </div>
+        <div class="feature-card">
+          <span>🛠️</span>
+          <strong>指令 & 工具预热</strong>
+          <p>快捷命令 + 安全工具，便于扩展 Agent。</p>
         </div>
       </div>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">🧱 架构升级蓝图</h3>
+      <p class="section-subtitle">根据 LangChain 能力与 512MB 限制梳理的落地路线图。</p>
+      <p class="section-subtitle">核心能力</p>
+      <div id="blueprintCore" class="blueprint-grid"></div>
+      <p class="section-subtitle">典型用法</p>
+      <div id="blueprintUse" class="blueprint-grid"></div>
+      <p class="section-subtitle">Render 512MB 建议</p>
+      <div id="blueprintRender" class="blueprint-grid"></div>
+      <p class="section-subtitle">下一步升级</p>
+      <div id="blueprintNext" class="blueprint-grid"></div>
+      <div class="pill-list" id="blueprintTips"></div>
     </div>
 
     <div class="card">
       <label for="q">你的问题</label>
-      <textarea id="q" placeholder="例如：用中文解释 REST API，并给一个例子"></textarea>
+      <textarea id="q" placeholder="例如：按结构说明 LangChain 核心能力与 512MB 落地建议"></textarea>
+
+      <div class="api-input">
+        <label for="apiInput">API 地址</label>
+        <input id="apiInput" type="text" />
+        <button class="ghost" onclick="saveApiBase()">保存</button>
+      </div>
 
       <div class="grid">
         <div>
@@ -445,6 +545,8 @@
       <div class="row">
         <label class="toggle"><input id="stream" type="checkbox" checked /> 流式输出</label>
         <label class="toggle"><input id="meta" type="checkbox" /> 显示元信息</label>
+        <label class="toggle"><input id="advisor" type="checkbox" checked /> 架构建议模式</label>
+        <label class="toggle"><input id="rag" type="checkbox" checked /> RAG 资料增强</label>
         <button onclick="ask()">提问</button>
         <button class="ghost" onclick="clearSession()">清空会话</button>
         <span class="status">
@@ -452,16 +554,20 @@
           <span id="statusText">等待输入</span>
         </span>
       </div>
-      <p class="muted">提示：开启“元信息”时会自动关闭流式输出。</p>
+      <div class="action-bar">
+        <button class="ghost" onclick="fillAdvisorPrompt()">一键生成升级建议提示词</button>
+        <button class="ghost" onclick="fillRagPrompt()">一键 RAG 资料型提问</button>
+      </div>
+      <p class="muted">提示：开启“元信息”时会自动关闭流式输出；架构建议模式会按固定结构输出。</p>
     </div>
 
     <div class="card">
-      <label>一键可爱风格</label>
+      <label>一键顾问风格</label>
       <div class="style-chips">
-        <button class="style-chip" data-prompt="请用极度可爱的语气回答，并在结尾附上温柔鼓励。">软萌奶兔</button>
-        <button class="style-chip" data-prompt="请用二次元元气风格回答，加入可爱拟声词。">元气星星</button>
-        <button class="style-chip" data-prompt="请用软糯甜美的语气回答，尽量简洁清晰。">甜心棉花糖</button>
-        <button class="style-chip" data-prompt="请用酷酷又可爱的语气回答，带一点赛博感。">赛博猫咪</button>
+        <button class="style-chip" data-prompt="请用专业、简洁的顾问语气回答，给出可执行要点。">专业顾问</button>
+        <button class="style-chip" data-prompt="请用要点清单输出，每段不超过 3 行。">极简要点</button>
+        <button class="style-chip" data-prompt="请以路线图形式回答，列出短中长期行动。">路线图</button>
+        <button class="style-chip" data-prompt="请强调成本与性能取舍，给出 512MB 优先级建议。">成本优先</button>
       </div>
       <p class="muted">点击后会自动填充「自定义风格提示词」。</p>
     </div>
@@ -473,25 +579,26 @@
     </div>
 
     <div class="card">
-      <label>性能魔法面板</label>
+      <label>轻量观测面板</label>
       <div class="status-panel">
         <div class="status-item">
-          <h4>内存预算</h4>
-          <p>512MB 轻量冲刺模式，动效不臃肿。</p>
+          <h4>请求总量</h4>
+          <p id="statRequests">加载中...</p>
         </div>
         <div class="status-item">
-          <h4>响应速度</h4>
-          <p>流式输出优先，先到先显示。</p>
+          <h4>缓存命中</h4>
+          <p id="statCache">加载中...</p>
         </div>
         <div class="status-item">
-          <h4>萌度指数</h4>
-          <p>UI + 模型风格双加成，甜度满格。</p>
+          <h4>会话数</h4>
+          <p id="statSessions">加载中...</p>
         </div>
         <div class="status-item">
-          <h4>安全提示</h4>
-          <p>可开启元信息追踪，透明可控。</p>
+          <h4>策略提示</h4>
+          <p>低成本优先：RAG + streaming → Router → 轻量工具。</p>
         </div>
       </div>
+      <div class="log-panel" id="observabilityLog">等待刷新观测数据...</div>
     </div>
 
     <div class="card">
@@ -504,8 +611,13 @@
   </div>
 
   <script>
-    const API_BASE = "https://myagent-mhrq.onrender.com";
-    document.getElementById("apiBase").textContent = API_BASE;
+    const DEFAULT_API_BASE = "https://myagent-mhrq.onrender.com";
+    let apiBase = localStorage.getItem("api_base") || DEFAULT_API_BASE;
+    if (window.location.hostname === "myagent-mhrq.onrender.com") {
+      apiBase = window.location.origin;
+    }
+    document.getElementById("apiBase").textContent = apiBase;
+    document.getElementById("apiInput").value = apiBase;
 
     const sessionInput = document.getElementById("session");
     const promptInput = document.getElementById("prompt");
@@ -522,9 +634,24 @@
       sessionInput.value = generated;
     }
 
+    function saveApiBase() {
+      const input = document.getElementById("apiInput");
+      const nextBase = input.value.trim();
+      if (!nextBase) {
+        alert("请输入有效的 API 地址");
+        return;
+      }
+      apiBase = nextBase;
+      localStorage.setItem("api_base", apiBase);
+      document.getElementById("apiBase").textContent = apiBase;
+      loadCommands();
+      loadBlueprint();
+      loadStats();
+    }
+
     async function loadCommands() {
       try {
-        const resp = await fetch(`${API_BASE}/features`);
+        const resp = await fetch(`${apiBase}/features`);
         if (!resp.ok) throw new Error("无法获取特性列表");
         const data = await resp.json();
         const container = document.getElementById("commands");
@@ -544,18 +671,80 @@
       }
     }
 
+    function renderBlueprintSection(containerId, title, items) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      if (!items || items.length === 0) return;
+      items.forEach((item) => {
+        const card = document.createElement("div");
+        card.className = "blueprint-card";
+        card.innerHTML = `<h4>${item.title}</h4><p>${item.content}</p>`;
+        container.appendChild(card);
+      });
+    }
+
+    async function loadBlueprint() {
+      try {
+        const resp = await fetch(`${apiBase}/blueprint`);
+        if (!resp.ok) throw new Error("无法获取蓝图数据");
+        const data = await resp.json();
+        renderBlueprintSection("blueprintCore", "核心能力", data.sections.core);
+        renderBlueprintSection("blueprintUse", "典型用法", data.sections.use);
+        renderBlueprintSection("blueprintRender", "Render 512MB", data.sections.render);
+        renderBlueprintSection("blueprintNext", "下一步升级", data.sections.next);
+        const tips = document.getElementById("blueprintTips");
+        tips.innerHTML = "";
+        data.tips.forEach((tip) => {
+          const pill = document.createElement("div");
+          pill.className = "pill";
+          pill.textContent = tip;
+          tips.appendChild(pill);
+        });
+      } catch (e) {
+        document.getElementById("blueprintCore").textContent = "蓝图加载失败，请稍后重试。";
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const resp = await fetch(`${apiBase}/stats`);
+        if (!resp.ok) throw new Error("无法获取统计数据");
+        const data = await resp.json();
+        document.getElementById("statRequests").textContent =
+          `总量 ${data.requests.total} · LLM ${data.requests.llm} · 规则 ${data.requests.rule}`;
+        document.getElementById("statCache").textContent =
+          `命中 ${data.cache.hits} / 失效 ${data.cache.misses} · 缓存大小 ${data.cache.size}`;
+        document.getElementById("statSessions").textContent =
+          `活跃 ${data.sessions.active} / 上限 ${data.sessions.max}`;
+        document.getElementById("observabilityLog").textContent =
+          `最近请求统计：LLM ${data.requests.llm} 次，规则命中 ${data.requests.rule} 次，缓存命中 ${data.requests.cache} 次。`;
+      } catch (e) {
+        document.getElementById("observabilityLog").textContent = "观测数据加载失败，请稍后重试。";
+      }
+    }
+
     async function clearSession() {
       const sessionId = sessionInput.value.trim();
       if (!sessionId) {
         alert("请先填写会话 ID");
         return;
       }
-      await fetch(`${API_BASE}/session/clear`, {
+      await fetch(`${apiBase}/session/clear`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId })
       });
       alert("会话已清空（或不存在）");
+    }
+
+    function fillAdvisorPrompt() {
+      document.getElementById("q").value =
+        "按“核心能力（LangChain 能做什么）→ 典型用法 → Render 512MB 落地建议 → 下一步升级”的结构说明。";
+    }
+
+    function fillRagPrompt() {
+      document.getElementById("q").value =
+        "结合 RAG、Agent、Router、Streaming 的工程价值，给出落地优先级和 512MB 实例注意事项。";
     }
 
     async function ask() {
@@ -572,10 +761,18 @@
 
       const streamToggle = document.getElementById("stream");
       const metaToggle = document.getElementById("meta");
+      const advisorToggle = document.getElementById("advisor");
+      const ragToggle = document.getElementById("rag");
       let stream = streamToggle.checked;
       const includeMeta = metaToggle.checked;
       if (includeMeta) {
         stream = false;
+      }
+      let mode = null;
+      if (advisorToggle.checked) {
+        mode = "advisor";
+      } else if (ragToggle.checked) {
+        mode = "rag";
       }
 
       const payload = {
@@ -583,7 +780,8 @@
         stream,
         include_meta: includeMeta,
         session_id: sessionInput.value.trim() || null,
-        system_prompt: promptInput.value.trim() || null
+        system_prompt: promptInput.value.trim() || null,
+        mode
       };
 
       statusText.textContent = "请求中...";
@@ -592,7 +790,7 @@
       metaPanel.textContent = "元信息会显示在这里。";
 
       try {
-        const resp = await fetch(`${API_BASE}/ask`, {
+        const resp = await fetch(`${apiBase}/ask`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
@@ -616,7 +814,9 @@
           const data = await resp.json();
           ans.textContent = data.answer ?? "(后端没有返回 answer 字段)";
           if (data.meta) {
-            metaPanel.textContent = `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms`;
+            const ragInfo = data.meta.rag_docs ? ` | RAG 文档：${data.meta.rag_docs.join("、")}` : "";
+            metaPanel.textContent =
+              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}`;
           }
         }
 
@@ -633,6 +833,8 @@
 
     loadSessionId();
     loadCommands();
+    loadBlueprint();
+    loadStats();
 
     styleChips.forEach((chip) => {
       chip.addEventListener("click", () => {

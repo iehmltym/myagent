@@ -90,9 +90,18 @@ class MyGeminiLLM:
             )
 
         # 优先选择更常用/性价比高的模型：
-        # 1) gemini-1.5-flash（快、便宜）
-        # 2) gemini-1.5-pro（更强）
-        for prefer in ("gemini-1.5-flash", "gemini-1.5-pro"):
+        # 1) gemini-2.5-flash（新一代快、便宜）
+        # 2) gemini-2.5-pro（新一代更强）
+        # 3) gemini-1.5-flash（上一代快、便宜）
+        # 4) gemini-1.5-pro（上一代更强）
+        # 备注：兼容部分账号返回的 gemini-2.5-fash 拼写。
+        for prefer in (
+            "gemini-2.5-flash",
+            "gemini-2.5-fash",
+            "gemini-2.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+        ):
             for name in candidates:
                 if prefer in name:
                     return name

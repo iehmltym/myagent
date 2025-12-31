@@ -633,6 +633,25 @@
     </div>
 
     <div class="card">
+      <h3 class="section-title">📎 多模态附件（图片 / 音频 / 文件）</h3>
+      <p class="section-subtitle">上传后先预览结构化摘要，再带着摘要发问。</p>
+      <div class="grid">
+        <div>
+          <label for="attachment">选择附件</label>
+          <input id="attachment" type="file" />
+          <p class="form-hint">支持图片、音频与通用文件（<= 6MB）。</p>
+        </div>
+        <div>
+          <label>附件摘要</label>
+          <pre id="attachmentPreview">尚未上传</pre>
+        </div>
+      </div>
+      <div class="row">
+        <button class="ghost" onclick="previewAttachment()">预览附件摘要</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3 class="section-title">🧠 LLM 控制面板</h3>
       <p class="section-subtitle">统一配置 Provider、温度、token、回退与重试策略。</p>
       <div class="grid">
@@ -756,6 +775,7 @@
 
     const sessionInput = document.getElementById("session");
     const promptInput = document.getElementById("prompt");
+    const attachmentInput = document.getElementById("attachment");
     const styleChips = document.querySelectorAll(".style-chip");
 
     function loadSessionId() {
@@ -941,6 +961,32 @@
       alert("会话已清空（或不存在）");
     }
 
+    async function previewAttachment() {
+      const preview = document.getElementById("attachmentPreview");
+      const file = attachmentInput?.files?.[0];
+      if (!file) {
+        preview.textContent = "请先选择附件。";
+        return;
+      }
+      preview.textContent = "分析中...";
+      let endpoint = "/files/describe";
+      if (file.type.startsWith("image/")) {
+        endpoint = "/images/describe";
+      } else if (file.type.startsWith("audio/")) {
+        endpoint = "/audio/describe";
+      }
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const resp = await fetch(`${apiBase}${endpoint}`, { method: "POST", body: form });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        preview.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        preview.textContent = `解析失败：${e.message}`;
+      }
+    }
+
     function fillAdvisorPrompt() {
       document.getElementById("q").value =
         "按“核心能力（LangChain 能做什么）→ 典型用法 → Render 512MB 落地建议 → 下一步升级”的结构说明。";
@@ -969,6 +1015,7 @@
       const ragToggle = document.getElementById("rag");
       const toolsToggle = document.getElementById("enableTools");
       const routerToggle = document.getElementById("enableRouter");
+      const attachment = attachmentInput?.files?.[0] || null;
       let stream = streamToggle.checked;
       const includeMeta = metaToggle.checked;
       if (includeMeta) {
@@ -1008,11 +1055,29 @@
       metaPanel.textContent = "元信息会显示在这里。";
 
       try {
-        const resp = await fetch(`${apiBase}/ask`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+        let resp;
+        if (attachment) {
+          const form = new FormData();
+          Object.entries(payload).forEach(([key, value]) => {
+            if (value === null || value === undefined) return;
+            if (Array.isArray(value)) {
+              form.append(key, value.join(","));
+            } else {
+              form.append(key, String(value));
+            }
+          });
+          form.append("file", attachment);
+          resp = await fetch(`${apiBase}/ask/multimodal`, {
+            method: "POST",
+            body: form
+          });
+        } else {
+          resp = await fetch(`${apiBase}/ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        }
 
         if (!resp.ok) {
           const t = await resp.text();
@@ -1039,8 +1104,11 @@
             const ragInfo = data.meta.rag_docs ? ` | RAG 文档：${data.meta.rag_docs.join("、")}` : "";
             const providerInfo = data.meta.provider ? ` | Provider：${data.meta.provider}` : "";
             const routeInfo = data.meta.route_reason ? ` | 路由：${data.meta.route_reason}` : "";
+            const attachmentInfo = data.meta.attachment
+              ? ` | 附件：${data.meta.attachment.filename} (${data.meta.attachment.size_bytes}B)`
+              : "";
             metaPanel.textContent =
-              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}${providerInfo}${routeInfo}`;
+              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}${providerInfo}${routeInfo}${attachmentInfo}`;
           }
         }
 

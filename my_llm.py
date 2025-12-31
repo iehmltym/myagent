@@ -1,4 +1,5 @@
 from dataclasses import dataclass          # dataclass：快速定义“配置类”，自动生成 __init__ 等
+import os
 from typing import Optional, Dict, Any, List  # 类型提示：让代码更清晰（运行不依赖它们）
 import google.generativeai as genai        # Google Gemini SDK（官方库）
 from env_utils import load_google_api_key  # 导入我们写的函数：读取 API Key
@@ -14,13 +15,19 @@ class GeminiConfig:
     max_output_tokens: int = 1024   # 最大输出 token 数（输出越长越大）
     top_p: float = 1.0              # nucleus sampling（控制输出分布）
     top_k: int = 1                  # top-k sampling（控制候选词范围）
+    # 指定模型名（如 models/gemini-1.5-flash）
+    # 如果传了这个，就不会去请求模型列表（节省启动时内存和时间）
+    model_name: Optional[str] = None
+    # 是否自动拉取模型列表进行选择（需要额外请求，默认关闭以省内存）
+    auto_select_model: bool = False
 
 
 class MyGeminiLLM:
     """
     对 Gemini SDK 做一个“业务友好”的封装：
     - 自动读取 API Key
-    - 自动选择可用模型（避免 gemini-pro 404）
+    - 支持指定模型，避免启动时拉取模型列表
+    - 可选自动选择可用模型（避免 gemini-pro 404）
     - 提供统一的 generate(prompt) 方法
     """
 
@@ -32,11 +39,34 @@ class MyGeminiLLM:
         # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
         genai.configure(api_key=load_google_api_key())
 
-        # 自动选择一个当前账号可用且支持 generateContent 的模型名
-        self.model_name = self._select_available_model()
+        # 指定模型优先级：config > 环境变量 > 默认值/自动选择
+        # 这样可以避免启动时就拉取模型列表，降低内存占用
+        self.model_name = self._resolve_model_name()
 
-        # 用选择到的模型名创建模型对象
-        self.model = genai.GenerativeModel(self.model_name)
+        # 注意：这里先不创建真正的模型对象（延迟到第一次生成时再创建）
+        # 这样可以减少应用启动阶段的内存使用
+        self.model = None
+
+    def _resolve_model_name(self) -> str:
+        """
+        解析当前要使用的模型名。
+        优先使用显式指定的模型，避免启动阶段大量请求/内存开销。
+        """
+        # 1) 优先使用代码里传入的模型名（最明确）
+        if self.config.model_name:
+            return self.config.model_name
+
+        # 2) 其次使用环境变量（Render/生产环境常用方式）
+        env_model = os.environ.get("GEMINI_MODEL")
+        if env_model:
+            return env_model
+
+        # 3) 如果允许自动选择，再去请求模型列表（更耗资源）
+        if self.config.auto_select_model:
+            return self._select_available_model()
+
+        # 4) 默认值：不请求模型列表，直接用常见的轻量模型
+        return "models/gemini-1.5-flash"
 
     def _select_available_model(self) -> str:
         """
@@ -71,6 +101,14 @@ class MyGeminiLLM:
         # 如果都不匹配，就返回列表第一个（兜底）
         return candidates[0]
 
+    def _ensure_model(self) -> None:
+        """
+        确保模型对象已创建。
+        只有在第一次真正生成内容时才创建，节省启动内存。
+        """
+        if self.model is None:
+            self.model = genai.GenerativeModel(self.model_name)
+
     def generate(self, prompt: str, **kwargs: Any) -> str:
         """
         生成文本的统一入口。
@@ -91,6 +129,7 @@ class MyGeminiLLM:
         # 调用 Gemini 的生成接口：
         # - prompt：你要问的问题
         # - generation_config：控制输出风格/长度
+        self._ensure_model()
         resp = self.model.generate_content(
             prompt,
             generation_config=generation_config
@@ -114,6 +153,7 @@ class MyGeminiLLM:
             "top_k": kwargs.get("top_k", self.config.top_k),
         }
 
+        self._ensure_model()
         stream = self.model.generate_content(
             prompt,
             generation_config=generation_config,

@@ -897,13 +897,17 @@
         }
 
         if (stream) {
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder("utf-8");
-          ans.textContent = "";
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            ans.textContent += decoder.decode(value, { stream: true });
+          if (!resp.body) {
+            ans.textContent = await resp.text();
+          } else {
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            ans.textContent = "";
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              ans.textContent += decoder.decode(value, { stream: true });
+            }
           }
         } else {
           const data = await resp.json();

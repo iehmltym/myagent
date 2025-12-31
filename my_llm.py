@@ -1,7 +1,5 @@
 from dataclasses import dataclass          # dataclass：快速定义“配置类”，自动生成 __init__ 等
-from typing import Optional, Dict, Any, List  # 类型提示：让代码更清晰（运行不依赖它们）
-from google import genai
-from google.genai import types
+from typing import Any, List, Optional  # 类型提示：让代码更清晰（运行不依赖它们）
 from env_utils import load_google_api_key  # 导入我们写的函数：读取 API Key
 
 
@@ -27,16 +25,29 @@ class MyGeminiLLM:
 
     _configured: bool = False
     _shared_model_name: Optional[str] = None
-    _shared_client: Optional[genai.Client] = None
+    _shared_client: Optional[Any] = None
+    _genai_module: Optional[Any] = None
+    _types_module: Optional[Any] = None
 
     def __init__(self, config: Optional[GeminiConfig] = None):
         # 如果外部传了 config，就用外部的；否则使用默认 GeminiConfig()
         self.config = config or GeminiConfig()
 
+        if not MyGeminiLLM._genai_module or not MyGeminiLLM._types_module:
+            try:
+                from google import genai as genai_module
+                from google.genai import types as types_module
+            except ImportError as exc:
+                raise RuntimeError("Gemini SDK 未安装或不可用，请确认已安装 google-genai。") from exc
+            MyGeminiLLM._genai_module = genai_module
+            MyGeminiLLM._types_module = types_module
+
         if not MyGeminiLLM._configured:
             # 配置 SDK：把 API Key 告诉 genai（内部会用于请求鉴权）
             # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
-            MyGeminiLLM._shared_client = genai.Client(api_key=load_google_api_key())
+            MyGeminiLLM._shared_client = MyGeminiLLM._genai_module.Client(
+                api_key=load_google_api_key()
+            )
             MyGeminiLLM._configured = True
         self.client = MyGeminiLLM._shared_client
 
@@ -89,7 +100,7 @@ class MyGeminiLLM:
 
         # generation_config：本次生成的参数
         # kwargs 优先级更高：外部传了就覆盖默认 config
-        generation_config = types.GenerateContentConfig(
+        generation_config = MyGeminiLLM._types_module.GenerateContentConfig(
             temperature=kwargs.get("temperature", self.config.temperature),
             max_output_tokens=kwargs.get("max_output_tokens", self.config.max_output_tokens),
             top_p=kwargs.get("top_p", self.config.top_p),
@@ -116,7 +127,7 @@ class MyGeminiLLM:
         :return: 逐块产出的文本片段
         """
 
-        generation_config = types.GenerateContentConfig(
+        generation_config = MyGeminiLLM._types_module.GenerateContentConfig(
             temperature=kwargs.get("temperature", self.config.temperature),
             max_output_tokens=kwargs.get("max_output_tokens", self.config.max_output_tokens),
             top_p=kwargs.get("top_p", self.config.top_p),

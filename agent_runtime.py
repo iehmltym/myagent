@@ -164,9 +164,23 @@ class GeminiProvider(LLMProvider):
     name = "gemini"
 
     def __init__(self):
-        self._client = MyGeminiLLM()
+        self._client: Optional[MyGeminiLLM] = None
+        self._init_error: Optional[str] = None
+        try:
+            self._client = MyGeminiLLM()
+        except Exception as exc:  # noqa: BLE001 - capture init failure
+            self._init_error = str(exc)
+
+    def is_available(self) -> bool:
+        return self._client is not None
+
+    def _unavailable_message(self) -> str:
+        hint = self._init_error or "Gemini SDK 未就绪。"
+        return f"[gemini] 不可用：{hint}"
 
     def generate(self, prompt: str, config: LLMRequestConfig) -> str:
+        if not self._client:
+            return self._unavailable_message()
         return self._client.generate(
             prompt,
             temperature=config.temperature,
@@ -176,6 +190,9 @@ class GeminiProvider(LLMProvider):
         )
 
     def generate_stream(self, prompt: str, config: LLMRequestConfig):
+        if not self._client:
+            yield self._unavailable_message()
+            return
         return self._client.generate_stream(
             prompt,
             temperature=config.temperature,

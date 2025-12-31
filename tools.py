@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import imghdr
 import json
 import math
 import re
@@ -241,15 +240,25 @@ def _jpeg_size(data: bytes) -> Dict[str, int]:
     return {}
 
 
+def _detect_image_kind(data: bytes) -> str:
+    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if len(data) >= 6 and data[:6] in {b"GIF87a", b"GIF89a"}:
+        return "gif"
+    if len(data) >= 2 and data[:2] == b"\xff\xd8":
+        return "jpeg"
+    return "unknown"
+
+
 def describe_image(data: bytes, filename: str, content_type: str) -> Dict[str, Any]:
     """返回图片的基础描述信息。"""
-    kind = imghdr.what(None, h=data) or "unknown"
+    kind = _detect_image_kind(data)
     size = {}
     if kind == "png":
         size = _png_size(data)
     elif kind == "gif":
         size = _gif_size(data)
-    elif kind in {"jpeg", "jpg"}:
+    elif kind == "jpeg":
         size = _jpeg_size(data)
     return {
         "filename": filename,

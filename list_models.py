@@ -1,13 +1,13 @@
-import google.generativeai as genai         # Gemini SDK
+from google import genai
 from env_utils import load_google_api_key   # 读取 API Key
 
 
 def main():
     # 配置 SDK 鉴权
-    genai.configure(api_key=load_google_api_key())
+    client = genai.Client(api_key=load_google_api_key())
 
     # list_models()：打印当前账号可用模型
-    for m in genai.list_models():
+    for m in client.models.list():
         # m.name：模型名（例如 models/gemini-1.5-flash）
         # supported_generation_methods：支持的方法列表
         print(m.name, getattr(m, "supported_generation_methods", None))

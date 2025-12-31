@@ -18,7 +18,7 @@ class GeminiConfig:
     max_output_tokens: int = 1024   # 最大输出 token 数（输出越长越大）
     top_p: float = 1.0              # nucleus sampling（控制输出分布）
     top_k: int = 1                  # top-k sampling（控制候选词范围）
-    # 指定模型名（如 models/gemini-1.5-flash）
+    # 指定模型名（如 models/gemini-2.5-fash）
     # 如果传了这个，就不会去请求模型列表（节省启动时内存和时间）
     model_name: Optional[str] = None
     # 是否自动拉取模型列表进行选择（需要额外请求，默认关闭以省内存）
@@ -77,8 +77,8 @@ class MyGeminiLLM:
         if self.config.auto_select_model:
             return self._select_available_model()
 
-        # 4) 默认值：不请求模型列表，直接用常见的轻量模型
-        return "models/gemini-1.5-flash"
+    # 4) 默认值：不请求模型列表，直接用常见的轻量模型
+        return "models/gemini-2.5-fash"
 
     def _select_available_model(self) -> str:
         """
@@ -104,9 +104,9 @@ class MyGeminiLLM:
             raise RuntimeError("当前账号没有任何支持 generateContent 的模型。")
 
         # 优先选择更常用/性价比高的模型：
-        # 1) gemini-1.5-flash（快、便宜）
+        # 1) gemini-2.5-fash（快、便宜）
         # 2) gemini-1.5-pro（更强）
-        for prefer in ("gemini-1.5-flash", "gemini-1.5-pro"):
+        for prefer in ("gemini-2.5-fash", "gemini-1.5-pro"):
             for name in candidates:
                 if prefer in name:
                     return name

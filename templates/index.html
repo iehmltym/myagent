@@ -2,58 +2,397 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8" />
-  <title>MyAgent 前端</title>
+  <title>MyAgent 超级控制台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    header {
+      padding: 32px 24px;
+      background: linear-gradient(120deg, #0ea5e9, #6366f1, #22c55e);
+      color: #0f172a;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    header p {
+      margin: 0;
+      font-size: 15px;
+    }
+    main {
+      padding: 24px;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card h3 {
+      margin: 0;
+      font-size: 18px;
+      color: #38bdf8;
+    }
+    label {
+      font-size: 13px;
+      color: #cbd5f5;
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #e2e8f0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+    button {
+      background: #38bdf8;
+      border: none;
+      color: #0f172a;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #1f2937;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .row > * {
+      flex: 1 1 120px;
+    }
+    pre {
+      background: #0b1220;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 0;
+      min-height: 120px;
+      white-space: pre-wrap;
+      color: #f8fafc;
+      border: 1px solid #1f2937;
+    }
+    footer {
+      padding: 24px;
+      font-size: 13px;
+      color: #94a3b8;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
-  <h2>MyAgent 前端（GitHub Pages）</h2>
+  <header>
+    <h1>MyAgent 超级控制台</h1>
+    <p>专为 GitHub Pages 静态页面设计的全功能后端测试面板。</p>
+  </header>
 
-  <textarea id="q" rows="6" cols="70" placeholder="输入问题，例如：用中文解释 REST API"></textarea>
-  <br><br>
-  <button onclick="ask()">提问</button>
+  <main>
+    <section class="card" style="grid-column: 1 / -1;">
+      <h3>连接设置</h3>
+      <label for="apiBase">API Base（后端地址）</label>
+      <input id="apiBase" type="text" placeholder="https://myagent-mhrq.onrender.com" />
+      <div class="row">
+        <button onclick="saveApiBase()">保存地址</button>
+        <button class="secondary" onclick="resetApiBase()">恢复默认</button>
+      </div>
+      <p id="baseHint"></p>
+    </section>
 
-  <h3>回答：</h3>
-  <pre id="ans"></pre>
+    <section class="card">
+      <h3>流式问答 /ask</h3>
+      <label for="askQuestion">问题</label>
+      <textarea id="askQuestion" placeholder="例如：用可爱的语气解释 RAG"></textarea>
+      <label for="askSystem">system_prompt（可选）</label>
+      <textarea id="askSystem" placeholder="例如：你是一个非常可爱的 AI 助手"></textarea>
+      <label for="askSession">session_id（可选）</label>
+      <input id="askSession" type="text" placeholder="例如：demo-session" />
+      <button onclick="callAsk()">发送（流式）</button>
+      <pre id="askResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>同步生成 /llm/complete</h3>
+      <label for="completePrompt">Prompt</label>
+      <textarea id="completePrompt" placeholder="例如：写一句介绍 Agent 的话"></textarea>
+      <div class="row">
+        <div>
+          <label for="completeTemp">温度</label>
+          <input id="completeTemp" type="text" placeholder="0.7" />
+        </div>
+        <div>
+          <label for="completeTokens">max_output_tokens</label>
+          <input id="completeTokens" type="text" placeholder="128" />
+        </div>
+      </div>
+      <button onclick="callComplete()">生成</button>
+      <pre id="completeResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>流式生成 /llm/stream</h3>
+      <label for="streamPrompt">Prompt</label>
+      <textarea id="streamPrompt" placeholder="例如：用三句话介绍 LCEL"></textarea>
+      <button onclick="callStream()">流式生成</button>
+      <pre id="streamResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>RAG 文档接入 /rag/ingest</h3>
+      <label for="ragDocs">文档列表（JSON 数组）</label>
+      <textarea id="ragDocs">[
+  {"content":"RAG 是检索增强生成，通过向量检索获取外部资料，再让模型综合回答。","metadata":{"id":"doc-1","source":"demo"}},
+  {"content":"Agent 适合开放式任务编排，可结合工具调用与记忆管理完成复杂任务。","metadata":{"id":"doc-2","source":"demo"}}
+]</textarea>
+      <button onclick="callRagIngest()">接入</button>
+      <pre id="ragIngestResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>RAG 问答 /rag/ask</h3>
+      <label for="ragQuestion">问题</label>
+      <textarea id="ragQuestion" placeholder="例如：什么是 RAG?"></textarea>
+      <div class="row">
+        <div>
+          <label for="ragMode">mode</label>
+          <input id="ragMode" type="text" placeholder="stuff" />
+        </div>
+        <div>
+          <label for="ragTopK">top_k</label>
+          <input id="ragTopK" type="text" placeholder="4" />
+        </div>
+      </div>
+      <button onclick="callRagAsk()">查询</button>
+      <pre id="ragAskResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>Agent 任务 /agent/ask</h3>
+      <label for="agentTask">任务</label>
+      <textarea id="agentTask" placeholder="例如：请帮我计算 3+7，然后告诉我时间"></textarea>
+      <label for="agentSession">session_id（可选）</label>
+      <input id="agentSession" type="text" placeholder="例如：agent-session" />
+      <button onclick="callAgent()">执行</button>
+      <pre id="agentResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>观测数据 /trace</h3>
+      <button onclick="callTrace()">获取 Trace</button>
+      <pre id="traceResult">(等待请求)</pre>
+    </section>
+
+    <section class="card">
+      <h3>LCEL 演示 /lcel/demo</h3>
+      <button onclick="callLcel()">查看 Demo 输出</button>
+      <pre id="lcelResult">(等待请求)</pre>
+    </section>
+  </main>
+
+  <footer>
+    保持这个页面为静态文件即可，API Base 填你的后端地址。
+  </footer>
 
   <script>
-    const API_BASE = "https://myagent-mhrq.onrender.com";
+    const DEFAULT_BASE = "https://myagent-mhrq.onrender.com";
+    const apiBaseInput = document.getElementById("apiBase");
+    const baseHint = document.getElementById("baseHint");
 
-    async function ask() {
-      const question = document.getElementById("q").value.trim();
-      const ansEl = document.getElementById("ans");
-      ansEl.textContent = "请求中...";
+    function getApiBase() {
+      const value = apiBaseInput.value.trim();
+      return value ? value.replace(/\/$/, "") : DEFAULT_BASE;
+    }
 
+    function saveApiBase() {
+      const base = getApiBase();
+      localStorage.setItem("myagent_api_base", base);
+      baseHint.textContent = `已保存：${base}`;
+    }
+
+    function resetApiBase() {
+      apiBaseInput.value = DEFAULT_BASE;
+      localStorage.removeItem("myagent_api_base");
+      baseHint.textContent = "已恢复默认地址";
+    }
+
+    function loadApiBase() {
+      const saved = localStorage.getItem("myagent_api_base");
+      apiBaseInput.value = saved || DEFAULT_BASE;
+      baseHint.textContent = saved ? `当前地址：${saved}` : `默认地址：${DEFAULT_BASE}`;
+    }
+
+    function toNumber(value, fallback) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    }
+
+    async function handleJson(endpoint, payload, outputEl) {
+      outputEl.textContent = "请求中...";
       try {
-        const resp = await fetch(`${API_BASE}/ask`, {
+        const response = await fetch(`${getApiBase()}${endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question })
+          body: JSON.stringify(payload),
         });
-
-        // 如果后端报错，先把状态码显示出来
-        if (!resp.ok) {
-          const t = await resp.text();
-          throw new Error(`HTTP ${resp.status}: ${t}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
         }
+        const data = await response.json();
+        outputEl.textContent = JSON.stringify(data, null, 2);
+      } catch (error) {
+        outputEl.textContent = `失败：${error.message}`;
+      }
+    }
 
-        ansEl.textContent = "";
-        if (!resp.body) {
-          const text = await resp.text();
-          ansEl.textContent = text || "(无返回内容)";
+    async function callAsk() {
+      const question = document.getElementById("askQuestion").value.trim();
+      const system = document.getElementById("askSystem").value.trim();
+      const session = document.getElementById("askSession").value.trim();
+      const output = document.getElementById("askResult");
+      if (!question) {
+        output.textContent = "请先输入问题。";
+        return;
+      }
+      output.textContent = "请求中...";
+      const payload = { question };
+      if (system) payload.system_prompt = system;
+      if (session) payload.session_id = session;
+
+      try {
+        const response = await fetch(`${getApiBase()}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        output.textContent = "";
+        const reader = response.body?.getReader();
+        if (!reader) {
+          output.textContent = await response.text();
           return;
         }
-
-        const reader = resp.body.getReader();
         const decoder = new TextDecoder("utf-8");
-
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          ansEl.textContent += decoder.decode(value, { stream: true });
+          output.textContent += decoder.decode(value, { stream: true });
         }
-      } catch (e) {
-        ansEl.textContent = "失败：" + e.message;
+      } catch (error) {
+        output.textContent = `失败：${error.message}`;
       }
     }
+
+    function callComplete() {
+      const prompt = document.getElementById("completePrompt").value.trim();
+      const temp = toNumber(document.getElementById("completeTemp").value, 0.7);
+      const tokens = toNumber(document.getElementById("completeTokens").value, 128);
+      return handleJson("/llm/complete", { prompt, temperature: temp, max_output_tokens: tokens }, document.getElementById("completeResult"));
+    }
+
+    function callStream() {
+      const prompt = document.getElementById("streamPrompt").value.trim();
+      const output = document.getElementById("streamResult");
+      output.textContent = "请求中...";
+      fetch(`${getApiBase()}/llm/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+          }
+          const reader = response.body?.getReader();
+          if (!reader) {
+            output.textContent = await response.text();
+            return;
+          }
+          output.textContent = "";
+          const decoder = new TextDecoder("utf-8");
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            output.textContent += decoder.decode(value, { stream: true });
+          }
+        })
+        .catch((error) => {
+          output.textContent = `失败：${error.message}`;
+        });
+    }
+
+    function callRagIngest() {
+      const raw = document.getElementById("ragDocs").value;
+      let documents = [];
+      const output = document.getElementById("ragIngestResult");
+      try {
+        documents = JSON.parse(raw);
+      } catch (error) {
+        output.textContent = "文档 JSON 格式不正确。";
+        return;
+      }
+      return handleJson("/rag/ingest", { documents }, output);
+    }
+
+    function callRagAsk() {
+      const question = document.getElementById("ragQuestion").value.trim();
+      const mode = document.getElementById("ragMode").value.trim() || "stuff";
+      const topK = toNumber(document.getElementById("ragTopK").value, 4);
+      return handleJson("/rag/ask", { question, mode, top_k: topK }, document.getElementById("ragAskResult"));
+    }
+
+    function callAgent() {
+      const task = document.getElementById("agentTask").value.trim();
+      const session = document.getElementById("agentSession").value.trim();
+      const payload = { task };
+      if (session) payload.session_id = session;
+      return handleJson("/agent/ask", payload, document.getElementById("agentResult"));
+    }
+
+    function callTrace() {
+      const output = document.getElementById("traceResult");
+      output.textContent = "请求中...";
+      fetch(`${getApiBase()}/trace`)
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+          }
+          const data = await response.json();
+          output.textContent = JSON.stringify(data, null, 2);
+        })
+        .catch((error) => {
+          output.textContent = `失败：${error.message}`;
+        });
+    }
+
+    function callLcel() {
+      return handleJson("/lcel/demo", {}, document.getElementById("lcelResult"));
+    }
+
+    loadApiBase();
   </script>
 </body>
 </html>

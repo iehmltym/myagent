@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import re
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ from agent_system import ConversationMemory, SimpleAgent, Tool
 from observability import TraceStore
 
 app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent
 # 会话历史字典：key 是 session_id，value 是 [(question, answer), ...]
 # 用于在多轮对话中保留上下文，便于拼接成连续对话的 prompt
 sessions: Dict[str, List[Tuple[str, str]]] = {}
@@ -39,9 +41,9 @@ agent_memories: Dict[str, ConversationMemory] = {}
 # 允许你的 GitHub Pages 调用（/ai 仍属于同一域名）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://iehmltym.github.io"],
-    allow_origin_regex=r"https://iehmltym\.github\.io$",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_origin_regex=None,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -272,6 +274,13 @@ def index():
     </body>
     </html>
     """
+
+
+@app.get("/test", response_class=HTMLResponse)
+def test_page():
+    """返回一个可直接调用后端的前端测试页面。"""
+    html_path = BASE_DIR / "templates" / "test_client.html"
+    return html_path.read_text(encoding="utf-8")
 
 
 @app.post("/ask")

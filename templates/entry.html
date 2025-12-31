@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyAgent 博客入口</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card: rgba(255, 255, 255, 0.08);
+      --text: #f8fafc;
+      --muted: rgba(248, 250, 252, 0.7);
+      --accent: #38bdf8;
+      --accent-2: #818cf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #1e293b 0%, #0b1120 55%, #020617 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      max-width: 820px;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 26px;
+      padding: 34px;
+      backdrop-filter: blur(12px);
+      display: grid;
+      gap: 20px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(56, 189, 248, 0.18);
+      color: var(--accent);
+      width: fit-content;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 32px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 999px;
+      padding: 12px 20px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #0b1120;
+      background: var(--accent);
+      transition: 0.2s ease;
+    }
+
+    .btn.secondary {
+      background: transparent;
+      border: 1px solid rgba(248, 250, 252, 0.6);
+      color: var(--text);
+    }
+
+    .btn.ghost {
+      background: rgba(129, 140, 248, 0.16);
+      color: var(--text);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status span {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #fbbf24;
+    }
+
+    .config {
+      display: grid;
+      gap: 8px;
+    }
+
+    .config label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .config input {
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(15, 23, 42, 0.5);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 720px) {
+      .stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!--
+    使用方式：复制本 HTML 放入博客文章或静态页面，
+    只需修改 data-app-url 为你的主站地址。
+  -->
+  <div class="card" data-app-url="https://myagent-mhrq.onrender.com">
+    <span class="badge">🚀 博客入口</span>
+    <h1>MyAgent 智能助手主站</h1>
+    <p>
+      这里是博客入口页，点击按钮即可进入完整控制台。你也可以在下方修改主站地址，
+      轻松跳转到自己的部署版本。
+    </p>
+
+    <div class="config">
+      <label for="appUrlInput">主站地址</label>
+      <input id="appUrlInput" type="text" placeholder="https://your-domain.com" />
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="enterBtn">进入主站</button>
+      <button class="btn secondary" id="copyLink">复制主站链接</button>
+      <button class="btn ghost" id="openStatus">查看 API 状态</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <strong>多模态对话</strong>
+        支持流式交互
+      </div>
+      <div class="stat">
+        <strong>可定制提示词</strong>
+        保持品牌语气
+      </div>
+      <div class="stat">
+        <strong>实时监控</strong>
+        API 健康检测
+      </div>
+    </div>
+
+    <div class="status" id="apiStatus">
+      <span></span>
+      正在检测服务状态...
+    </div>
+  </div>
+
+  <script>
+    const card = document.querySelector(".card");
+    const apiStatus = document.getElementById("apiStatus");
+    const appUrlInput = document.getElementById("appUrlInput");
+    const enterBtn = document.getElementById("enterBtn");
+    const copyLink = document.getElementById("copyLink");
+    const openStatus = document.getElementById("openStatus");
+
+    let appUrl = card.dataset.appUrl || "https://myagent-mhrq.onrender.com";
+    appUrlInput.value = appUrl;
+
+    function syncAppUrl() {
+      appUrl = appUrlInput.value.trim() || appUrl;
+      card.dataset.appUrl = appUrl;
+    }
+
+    enterBtn.addEventListener("click", () => {
+      syncAppUrl();
+      window.open(appUrl, "_blank");
+    });
+
+    copyLink.addEventListener("click", async () => {
+      syncAppUrl();
+      await navigator.clipboard.writeText(appUrl);
+      copyLink.textContent = "已复制";
+      setTimeout(() => (copyLink.textContent = "复制主站链接"), 2000);
+    });
+
+    openStatus.addEventListener("click", () => {
+      syncAppUrl();
+      window.open(`${appUrl}/health`, "_blank");
+    });
+
+    async function checkHealth() {
+      try {
+        const resp = await fetch(`${appUrl}/health`);
+        if (!resp.ok) throw new Error("health failed");
+        apiStatus.innerHTML = "<span style=\"background:#22c55e\"></span> 服务运行中";
+      } catch (error) {
+        apiStatus.innerHTML = "<span style=\"background:#f97316\"></span> 服务暂时不可用";
+      }
+    }
+
+    appUrlInput.addEventListener("change", () => {
+      syncAppUrl();
+      checkHealth();
+    });
+
+    checkHealth();
+  </script>
+</body>
+</html>

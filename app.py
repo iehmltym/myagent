@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -11,6 +12,8 @@ from my_custom_llm import MyCustomGeminiLLM
 from tools import add, get_time
 
 app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATE_DIR = BASE_DIR / "templates"
 # 会话历史字典：key 是 session_id，value 是 [(question, answer), ...]
 # 用于在多轮对话中保留上下文，便于拼接成连续对话的 prompt
 sessions: Dict[str, List[Tuple[str, str]]] = {}
@@ -50,18 +53,12 @@ def health():
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    # 不依赖 templates 文件，避免 Render 上找不到文件导致异常
-    return """
-    <!doctype html>
-    <html lang="zh">
-    <head><meta charset="utf-8"><title>MyAgent API</title></head>
-    <body>
-      <h2>MyAgent API is running</h2>
-      <p>Health: <a href="/health">/health</a></p>
-      <p>Use <code>POST /ask</code> with JSON: {"question":"..."}</p>
-    </body>
-    </html>
-    """
+    return (TEMPLATE_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/entry", response_class=HTMLResponse)
+def entry():
+    return (TEMPLATE_DIR / "entry.html").read_text(encoding="utf-8")
 
 
 @app.post("/ask")

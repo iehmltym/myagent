@@ -2,58 +2,857 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8" />
-  <title>MyAgent 前端</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyAgent 智能工作台</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.12);
+      --border: #e5e7eb;
+      --success: #16a34a;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      min-height: 100vh;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .brand p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f3f4f6;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .status span {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--warning);
+    }
+
+    .status.online {
+      background: rgba(22, 163, 74, 0.1);
+      color: #166534;
+    }
+
+    .status.online span {
+      background: var(--success);
+    }
+
+    .nav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .nav-group h3 {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .nav-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--panel);
+      font-size: 13px;
+    }
+
+    .nav-card strong {
+      font-size: 14px;
+    }
+
+    .nav-card span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      transition: 0.2s ease;
+    }
+
+    .btn.secondary {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .btn.ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .btn.danger {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .main {
+      padding: 28px 32px 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    header h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    header p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.85fr;
+      gap: 20px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 160px;
+    }
+
+    .panel h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .chat-window {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 300px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .bubble {
+      padding: 12px 14px;
+      border-radius: 14px;
+      line-height: 1.6;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+
+    .bubble.user {
+      background: var(--accent-soft);
+      align-self: flex-end;
+    }
+
+    .bubble.assistant {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+    }
+
+    .bubble small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-size: 11px;
+    }
+
+    textarea,
+    input[type="text"],
+    select {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 9px 12px;
+      font-size: 13px;
+      resize: vertical;
+      background: #fff;
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border: 1px dashed var(--border);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .chip.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .session-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .session-item {
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .session-item.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .session-item strong {
+      display: block;
+      font-size: 13px;
+    }
+
+    .session-item span {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .footer-note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stack-card {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .stack-card h4 {
+      margin: 0 0 6px;
+      font-size: 13px;
+    }
+
+    .stack-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stack-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
-  <h2>MyAgent 前端（GitHub Pages）</h2>
+  <div class="app">
+    <aside>
+      <div class="brand">
+        <h1>MyAgent 工作台</h1>
+        <p>集成对话、配置、会话管理、快捷模板，打造完整 AI 前端体验。</p>
+      </div>
 
-  <textarea id="q" rows="6" cols="70" placeholder="输入问题，例如：用中文解释 REST API"></textarea>
-  <br><br>
-  <button onclick="ask()">提问</button>
+      <div id="healthStatus" class="status">
+        <span></span>
+        正在检测 API 连接...
+      </div>
 
-  <h3>回答：</h3>
-  <pre id="ans"></pre>
+      <div class="nav-group">
+        <h3>核心模块</h3>
+        <div class="nav-card">
+          <strong>对话中心</strong>
+          <span>流式交互、会话 ID、历史追踪</span>
+        </div>
+        <div class="nav-card">
+          <strong>配置面板</strong>
+          <span>系统提示词、语气模板、API 地址</span>
+        </div>
+        <div class="nav-card">
+          <strong>分析概览</strong>
+          <span>请求次数、输出字符、响应耗时</span>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <h3>入口操作</h3>
+        <div class="nav-actions">
+          <button class="btn secondary" id="entryLinkBtn">复制博客入口 HTML</button>
+          <button class="btn ghost" id="openEntryPreview">预览入口页</button>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <h3>本地会话</h3>
+        <div id="sessionList" class="session-list"></div>
+        <button class="btn ghost" id="clearSessionsBtn">清空会话记录</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header>
+        <div>
+          <h2>智能助手工作台</h2>
+          <p>支持会话管理、提示词库、数据统计，适合作为主站展示。</p>
+        </div>
+        <div class="toolbar">
+          <button class="btn" id="sendBtn">发送问题</button>
+          <button class="btn secondary" id="clearBtn">清空聊天</button>
+          <button class="btn ghost" id="newSessionBtn">新建会话</button>
+          <button class="btn ghost" id="exportBtn">导出对话</button>
+        </div>
+      </header>
+
+      <section class="content-grid">
+        <div class="panel">
+          <h3>对话窗口</h3>
+          <div id="chatWindow" class="chat-window"></div>
+          <div class="form-row">
+            <label for="questionInput">输入问题</label>
+            <textarea id="questionInput" rows="4" placeholder="示例：为我的博客生成一份本周内容规划"></textarea>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>对话配置</h3>
+          <div class="form-row">
+            <label for="sessionInput">会话 ID（为空即自动生成）</label>
+            <input id="sessionInput" type="text" placeholder="例如：blog-demo-001" />
+          </div>
+          <div class="form-row">
+            <label for="systemPrompt">系统提示词</label>
+            <textarea id="systemPrompt" rows="4" placeholder="例如：你是品牌文案助手，回答要专业简洁"></textarea>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label for="toneSelect">语气模板</label>
+              <select id="toneSelect">
+                <option value="">默认可爱风格</option>
+                <option value="你是我的产品顾问，语气专业、条理清晰">产品顾问</option>
+                <option value="你是写作教练，回答要包含案例与建议">写作教练</option>
+                <option value="你是数据分析助手，输出要包含表格与指标">数据分析</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>流式响应</label>
+              <div class="chips">
+                <span class="chip active" id="streamToggle">已开启</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="apiBaseInput">API 地址</label>
+            <input id="apiBaseInput" type="text" placeholder="https://myagent-mhrq.onrender.com" />
+            <button class="btn ghost" id="saveApiBtn">保存 API 地址</button>
+          </div>
+          <div class="form-row">
+            <label>快捷问题模板</label>
+            <div class="chips" id="presetChips">
+              <span class="chip" data-question="帮我写一段博客开头，主题是 AI 前端体验">博客开头</span>
+              <span class="chip" data-question="用表格对比 GPT 和传统搜索的差异">表格对比</span>
+              <span class="chip" data-question="生成 5 条适合社交媒体发布的标题">社媒标题</span>
+              <span class="chip" data-question="整理一个 7 天学习计划，目标是掌握前端工程化">学习计划</span>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <strong id="metricRequests">0</strong>
+              <span>累计请求</span>
+            </div>
+            <div class="metric">
+              <strong id="metricChars">0</strong>
+              <span>返回字符</span>
+            </div>
+            <div class="metric">
+              <strong id="metricLatency">--</strong>
+              <span>平均耗时</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>灵感与进阶功能</h3>
+        <div class="stack-grid">
+          <div class="stack-card">
+            <h4>提示词库</h4>
+            <p>整理常用提示词模板，便于快速调用并保持品牌语气。</p>
+          </div>
+          <div class="stack-card">
+            <h4>报告导出</h4>
+            <p>支持一键导出对话记录，贴入周报或博客编辑器。</p>
+          </div>
+          <div class="stack-card">
+            <h4>多会话管理</h4>
+            <p>在左侧快速切换会话，保留多个创作场景。</p>
+          </div>
+        </div>
+        <p class="footer-note">入口页文件位于 <code>/entry</code>，可复制到博客作为首页入口。</p>
+      </section>
+    </main>
+  </div>
 
   <script>
-    const API_BASE = "https://myagent-mhrq.onrender.com";
+    const DEFAULT_API_BASE = "https://myagent-mhrq.onrender.com";
+    const chatWindow = document.getElementById("chatWindow");
+    const questionInput = document.getElementById("questionInput");
+    const systemPrompt = document.getElementById("systemPrompt");
+    const sessionInput = document.getElementById("sessionInput");
+    const toneSelect = document.getElementById("toneSelect");
+    const sendBtn = document.getElementById("sendBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const newSessionBtn = document.getElementById("newSessionBtn");
+    const exportBtn = document.getElementById("exportBtn");
+    const streamToggle = document.getElementById("streamToggle");
+    const healthStatus = document.getElementById("healthStatus");
+    const metricRequests = document.getElementById("metricRequests");
+    const metricChars = document.getElementById("metricChars");
+    const metricLatency = document.getElementById("metricLatency");
+    const entryLinkBtn = document.getElementById("entryLinkBtn");
+    const openEntryPreview = document.getElementById("openEntryPreview");
+    const presetChips = document.getElementById("presetChips");
+    const apiBaseInput = document.getElementById("apiBaseInput");
+    const saveApiBtn = document.getElementById("saveApiBtn");
+    const sessionList = document.getElementById("sessionList");
+    const clearSessionsBtn = document.getElementById("clearSessionsBtn");
+
+    let enableStream = true;
+    let totalRequests = 0;
+    let totalChars = 0;
+    const latencySamples = [];
+    let apiBase = localStorage.getItem("apiBase") || DEFAULT_API_BASE;
+    let conversations = JSON.parse(localStorage.getItem("chatSessions") || "[]");
+    let activeSessionId = null;
+
+    function persistSessions() {
+      localStorage.setItem("chatSessions", JSON.stringify(conversations));
+    }
+
+    function syncApiBase() {
+      apiBaseInput.value = apiBase;
+    }
+
+    function addBubble(role, content) {
+      const bubble = document.createElement("div");
+      bubble.className = `bubble ${role}`;
+      bubble.textContent = content;
+      chatWindow.appendChild(bubble);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+      return bubble;
+    }
+
+    function addSystemMessage(text) {
+      const bubble = document.createElement("div");
+      bubble.className = "bubble assistant";
+      bubble.innerHTML = `<small>系统提示</small>${text}`;
+      chatWindow.appendChild(bubble);
+    }
+
+    function renderChat(messages = []) {
+      chatWindow.innerHTML = "";
+      if (!messages.length) {
+        addSystemMessage("欢迎回来！从右侧设置语气或使用快捷模板开始对话。");
+        return;
+      }
+      messages.forEach((item) => addBubble(item.role, item.content));
+    }
+
+    function renderSessions() {
+      sessionList.innerHTML = "";
+      if (!conversations.length) {
+        const empty = document.createElement("div");
+        empty.className = "footer-note";
+        empty.textContent = "暂无会话记录";
+        sessionList.appendChild(empty);
+        return;
+      }
+      conversations.forEach((session) => {
+        const item = document.createElement("div");
+        item.className = `session-item${session.id === activeSessionId ? " active" : ""}`;
+        item.innerHTML = `<strong>${session.title || "未命名会话"}</strong><span>${session.updatedAt}</span>`;
+        item.addEventListener("click", () => switchSession(session.id));
+        sessionList.appendChild(item);
+      });
+    }
+
+    function switchSession(sessionId) {
+      activeSessionId = sessionId;
+      const session = conversations.find((item) => item.id === sessionId);
+      if (session) {
+        sessionInput.value = session.id;
+        renderChat(session.messages);
+      }
+      renderSessions();
+    }
+
+    function createSessionIfNeeded(question) {
+      let sessionId = sessionInput.value.trim();
+      if (!sessionId) {
+        sessionId = `session-${Date.now()}`;
+        sessionInput.value = sessionId;
+      }
+      let session = conversations.find((item) => item.id === sessionId);
+      if (!session) {
+        session = {
+          id: sessionId,
+          title: question.slice(0, 12) + (question.length > 12 ? "…" : ""),
+          messages: [],
+          updatedAt: new Date().toLocaleString(),
+        };
+        conversations.unshift(session);
+      }
+      activeSessionId = sessionId;
+      return session;
+    }
+
+    function updateSession(session, role, content) {
+      session.messages.push({ role, content });
+      session.updatedAt = new Date().toLocaleString();
+      persistSessions();
+      renderSessions();
+    }
+
+    function updateMetrics({ chars, latency }) {
+      if (typeof chars === "number") {
+        totalChars += chars;
+        metricChars.textContent = totalChars.toString();
+      }
+      if (typeof latency === "number") {
+        latencySamples.push(latency);
+        const avg = Math.round(latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length);
+        metricLatency.textContent = `${avg} ms`;
+      }
+    }
+
+    async function checkHealth() {
+      try {
+        const resp = await fetch(`${apiBase}/health`);
+        if (!resp.ok) throw new Error("API not ok");
+        healthStatus.classList.add("online");
+        healthStatus.innerHTML = "<span></span> API 已连接";
+      } catch (error) {
+        healthStatus.classList.remove("online");
+        healthStatus.innerHTML = "<span></span> API 暂不可用";
+      }
+    }
 
     async function ask() {
-      const question = document.getElementById("q").value.trim();
-      const ansEl = document.getElementById("ans");
-      ansEl.textContent = "请求中...";
+      const question = questionInput.value.trim();
+      if (!question) {
+        questionInput.focus();
+        return;
+      }
 
+      sendBtn.disabled = true;
+      totalRequests += 1;
+      metricRequests.textContent = totalRequests.toString();
+
+      const session = createSessionIfNeeded(question);
+      addBubble("user", question);
+      updateSession(session, "user", question);
+
+      const assistantBubble = addBubble("assistant", "准备中...");
+      const payload = {
+        question,
+        session_id: sessionInput.value.trim() || undefined,
+        system_prompt: systemPrompt.value.trim() || toneSelect.value.trim() || undefined,
+      };
+
+      const start = performance.now();
       try {
-        const resp = await fetch(`${API_BASE}/ask`, {
+        const resp = await fetch(`${apiBase}/ask`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question })
+          body: JSON.stringify(payload),
         });
 
-        // 如果后端报错，先把状态码显示出来
         if (!resp.ok) {
-          const t = await resp.text();
-          throw new Error(`HTTP ${resp.status}: ${t}`);
+          const text = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${text}`);
         }
 
-        ansEl.textContent = "";
-        if (!resp.body) {
+        if (!resp.body || !enableStream) {
           const text = await resp.text();
-          ansEl.textContent = text || "(无返回内容)";
+          assistantBubble.textContent = text || "(无返回内容)";
+          updateSession(session, "assistant", assistantBubble.textContent);
+          updateMetrics({ chars: assistantBubble.textContent.length, latency: Math.round(performance.now() - start) });
           return;
         }
 
+        assistantBubble.textContent = "";
         const reader = resp.body.getReader();
         const decoder = new TextDecoder("utf-8");
+        let output = "";
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          ansEl.textContent += decoder.decode(value, { stream: true });
+          output += decoder.decode(value, { stream: true });
+          assistantBubble.textContent = output;
+          chatWindow.scrollTop = chatWindow.scrollHeight;
         }
-      } catch (e) {
-        ansEl.textContent = "失败：" + e.message;
+
+        updateSession(session, "assistant", output);
+        updateMetrics({ chars: output.length, latency: Math.round(performance.now() - start) });
+      } catch (error) {
+        assistantBubble.textContent = `请求失败：${error.message}`;
+      } finally {
+        sendBtn.disabled = false;
       }
     }
+
+    function clearChat() {
+      chatWindow.innerHTML = "";
+      addSystemMessage("聊天已清空，你可以开始新的对话。");
+    }
+
+    function resetSession() {
+      sessionInput.value = "";
+      activeSessionId = null;
+      clearChat();
+      renderSessions();
+    }
+
+    function toggleStream() {
+      enableStream = !enableStream;
+      streamToggle.textContent = enableStream ? "已开启" : "已关闭";
+      streamToggle.classList.toggle("active", enableStream);
+    }
+
+    async function copyEntryTemplate() {
+      try {
+        const resp = await fetch(`${apiBase}/entry`);
+        const text = await resp.text();
+        await navigator.clipboard.writeText(text);
+        entryLinkBtn.textContent = "入口 HTML 已复制";
+        setTimeout(() => (entryLinkBtn.textContent = "复制博客入口 HTML"), 2000);
+      } catch (error) {
+        entryLinkBtn.textContent = "复制失败";
+        setTimeout(() => (entryLinkBtn.textContent = "复制博客入口 HTML"), 2000);
+      }
+    }
+
+    function exportChat() {
+      const session = conversations.find((item) => item.id === activeSessionId);
+      if (!session) return;
+      const content = session.messages
+        .map((msg) => `${msg.role === "user" ? "用户" : "助手"}：${msg.content}`)
+        .join("\n\n");
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${session.id}.txt`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function saveApiBase() {
+      const next = apiBaseInput.value.trim();
+      if (!next) return;
+      apiBase = next;
+      localStorage.setItem("apiBase", apiBase);
+      checkHealth();
+    }
+
+    function clearSessions() {
+      conversations = [];
+      persistSessions();
+      resetSession();
+    }
+
+    sendBtn.addEventListener("click", ask);
+    clearBtn.addEventListener("click", clearChat);
+    newSessionBtn.addEventListener("click", resetSession);
+    exportBtn.addEventListener("click", exportChat);
+    streamToggle.addEventListener("click", toggleStream);
+    entryLinkBtn.addEventListener("click", copyEntryTemplate);
+    openEntryPreview.addEventListener("click", () => window.open(`${apiBase}/entry`, "_blank"));
+    saveApiBtn.addEventListener("click", saveApiBase);
+    clearSessionsBtn.addEventListener("click", clearSessions);
+
+    questionInput.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        ask();
+      }
+    });
+
+    toneSelect.addEventListener("change", () => {
+      if (toneSelect.value) {
+        systemPrompt.value = toneSelect.value;
+      }
+    });
+
+    presetChips.addEventListener("click", (event) => {
+      const target = event.target.closest(".chip");
+      if (!target) return;
+      const question = target.dataset.question;
+      if (question) {
+        questionInput.value = question;
+        questionInput.focus();
+      }
+    });
+
+    syncApiBase();
+    renderChat();
+    renderSessions();
+    checkHealth();
   </script>
 </body>
 </html>

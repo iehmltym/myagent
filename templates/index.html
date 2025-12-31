@@ -6,15 +6,17 @@
   <title>AI 提问小助手</title>
   <style>
     :root {
-      --bg: #f7f8fc;
-      --card: #ffffff;
-      --primary: #7c5cff;
-      --primary-dark: #5b3be3;
-      --text: #1f2430;
-      --muted: #6b7280;
-      --border: #e5e7eb;
-      --shadow: 0 10px 30px rgba(124, 92, 255, 0.12);
-      --radius: 16px;
+      --bg: #fff7ff;
+      --card: rgba(255, 255, 255, 0.9);
+      --primary: #ff7ad9;
+      --primary-dark: #f04ebf;
+      --secondary: #7c5cff;
+      --accent: #48d1ff;
+      --text: #2a1747;
+      --muted: #7a6a91;
+      --border: rgba(255, 255, 255, 0.6);
+      --shadow: 0 18px 40px rgba(255, 122, 217, 0.18);
+      --radius: 22px;
     }
 
     * { box-sizing: border-box; }
@@ -22,27 +24,59 @@
     body {
       margin: 0;
       font-family: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", Arial;
-      background: var(--bg);
+      background: radial-gradient(circle at top, #ffe9fb 0%, #f7f3ff 45%, #edf7ff 100%);
       color: var(--text);
     }
 
     .wrap {
-      max-width: 960px;
+      max-width: 1040px;
       margin: 40px auto;
       padding: 0 16px 60px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .bg-blobs {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .blob {
+      position: absolute;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      filter: blur(10px);
+      opacity: 0.5;
+      animation: float 10s ease-in-out infinite;
+    }
+
+    .blob.one { background: #ffd6f5; top: -60px; left: -60px; }
+    .blob.two { background: #d7f1ff; top: 120px; right: -80px; animation-delay: -2s; }
+    .blob.three { background: #fce6c4; bottom: -120px; left: 20%; animation-delay: -4s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px) translateX(0px); }
+      50% { transform: translateY(20px) translateX(10px); }
     }
 
     .hero {
-      background: linear-gradient(135deg, #ffffff 0%, #f1efff 100%);
-      border: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 228, 247, 0.85) 50%, rgba(226, 240, 255, 0.9) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.7);
       border-radius: var(--radius);
-      padding: 28px 24px;
+      padding: 28px 24px 24px;
       box-shadow: var(--shadow);
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+      gap: 18px;
     }
 
     .hero h1 {
       margin: 0 0 8px;
-      font-size: 26px;
+      font-size: 30px;
     }
 
     .hero p {
@@ -60,6 +94,53 @@
       box-shadow: var(--shadow);
     }
 
+    .hero-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      background: rgba(255, 255, 255, 0.8);
+      border: 1px solid rgba(255, 122, 217, 0.2);
+      color: var(--secondary);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .hero-art {
+      background: rgba(255, 255, 255, 0.75);
+      border-radius: 18px;
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .mascot {
+      font-size: 56px;
+      filter: drop-shadow(0 8px 10px rgba(255, 122, 217, 0.2));
+      animation: bounce 3s ease-in-out infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .sparkles {
+      display: flex;
+      gap: 6px;
+      font-size: 14px;
+      color: var(--primary-dark);
+    }
+
     label {
       display: block;
       font-weight: 600;
@@ -69,13 +150,13 @@
     textarea,
     input[type="text"] {
       width: 100%;
-      border: 1px solid var(--border);
+      border: 1px solid rgba(255, 255, 255, 0.9);
       border-radius: 12px;
       padding: 12px 14px;
       font-size: 15px;
       outline: none;
       transition: border .2s, box-shadow .2s;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.95);
     }
 
     textarea {
@@ -86,7 +167,7 @@
     textarea:focus,
     input[type="text"]:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.15);
+      box-shadow: 0 0 0 4px rgba(255, 122, 217, 0.2);
     }
 
     .row {
@@ -121,14 +202,17 @@
       font-size: 16px;
       cursor: pointer;
       transition: transform .06s, background .2s;
+      box-shadow: 0 12px 20px rgba(255, 122, 217, 0.25);
     }
 
     button:hover { background: var(--primary-dark); }
     button:active { transform: scale(0.98); }
 
     .ghost {
-      background: #eef2ff;
-      color: var(--primary-dark);
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--secondary);
+      border: 1px solid rgba(124, 92, 255, 0.2);
+      box-shadow: none;
     }
 
     .status {
@@ -158,8 +242,8 @@
 
     pre {
       white-space: pre-wrap;
-      background: #f8fafc;
-      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.7);
       padding: 16px;
       border-radius: 12px;
       min-height: 120px;
@@ -175,9 +259,9 @@
     .meta {
       margin-top: 12px;
       padding: 12px;
-      border: 1px dashed var(--border);
+      border: 1px dashed rgba(255, 122, 217, 0.4);
       border-radius: 12px;
-      background: #faf7ff;
+      background: rgba(255, 240, 250, 0.7);
       font-size: 13px;
       color: var(--muted);
     }
@@ -190,13 +274,87 @@
     }
 
     .pill {
-      border: 1px solid var(--border);
+      border: 1px solid rgba(255, 255, 255, 0.9);
       padding: 6px 10px;
       border-radius: 999px;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.95);
       font-size: 12px;
       color: var(--muted);
       cursor: pointer;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .feature-card {
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 12px 24px rgba(124, 92, 255, 0.08);
+      display: grid;
+      gap: 6px;
+    }
+
+    .feature-card span {
+      font-size: 22px;
+    }
+
+    .feature-card strong {
+      font-size: 14px;
+    }
+
+    .feature-card p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .style-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .style-chip {
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 122, 217, 0.2);
+      color: var(--primary-dark);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .status-panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .status-item {
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.9);
+    }
+
+    .status-item h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+    }
+
+    .status-item p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
     }
 
     .footer {
@@ -208,11 +366,65 @@
   </style>
 </head>
 <body>
+  <div class="bg-blobs">
+    <div class="blob one"></div>
+    <div class="blob two"></div>
+    <div class="blob three"></div>
+  </div>
   <div class="wrap">
     <div class="hero">
-      <h1>🌸 AI 提问小助手</h1>
-      <p>输入问题，点击提问，获取温柔可爱的回答～</p>
-      <p class="muted">后端地址：<code id="apiBase"></code></p>
+      <div>
+        <h1>🌸 超萌 AI 提问小助手</h1>
+        <p>把 512MB 的服务器能量都用在「高甜回答」和「闪亮体验」上～</p>
+        <p class="muted">后端地址：<code id="apiBase"></code></p>
+        <div class="hero-tags">
+          <span class="tag">极度可爱 UI</span>
+          <span class="tag">流式回答</span>
+          <span class="tag">多轮记忆</span>
+          <span class="tag">轻量超快</span>
+        </div>
+      </div>
+      <div class="hero-art">
+        <div class="mascot">🫧🐰</div>
+        <div class="sparkles">✨ ⚡️ 💗 ✨</div>
+        <p class="muted">萌系模型风格 · 甜度拉满</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>超强功能总览（前端展示）</label>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span>🚀</span>
+          <strong>极速流式输出</strong>
+          <p>响应即时刷新，回答像弹幕一样飘出来。</p>
+        </div>
+        <div class="feature-card">
+          <span>🧠</span>
+          <strong>多轮记忆对话</strong>
+          <p>用会话 ID 持续记住上下文，不迷路。</p>
+        </div>
+        <div class="feature-card">
+          <span>🎀</span>
+          <strong>萌系提示词引擎</strong>
+          <p>一键注入可爱语气、拟人化表达。</p>
+        </div>
+        <div class="feature-card">
+          <span>⚡️</span>
+          <strong>512MB 轻量模式</strong>
+          <p>前端轻量动效，低内存也能炫酷。</p>
+        </div>
+        <div class="feature-card">
+          <span>🔮</span>
+          <strong>元信息追踪</strong>
+          <p>展示来源、延迟、缓存命中率。</p>
+        </div>
+        <div class="feature-card">
+          <span>🎛️</span>
+          <strong>极速指令面板</strong>
+          <p>后端本地指令快捷触发。</p>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -244,9 +456,42 @@
     </div>
 
     <div class="card">
+      <label>一键可爱风格</label>
+      <div class="style-chips">
+        <button class="style-chip" data-prompt="请用极度可爱的语气回答，并在结尾附上温柔鼓励。">软萌奶兔</button>
+        <button class="style-chip" data-prompt="请用二次元元气风格回答，加入可爱拟声词。">元气星星</button>
+        <button class="style-chip" data-prompt="请用软糯甜美的语气回答，尽量简洁清晰。">甜心棉花糖</button>
+        <button class="style-chip" data-prompt="请用酷酷又可爱的语气回答，带一点赛博感。">赛博猫咪</button>
+      </div>
+      <p class="muted">点击后会自动填充「自定义风格提示词」。</p>
+    </div>
+
+    <div class="card">
       <label>极速指令（后端本地执行）</label>
       <div id="commands" class="pill-list"></div>
       <p class="muted">点击指令可自动填充到输入框。</p>
+    </div>
+
+    <div class="card">
+      <label>性能魔法面板</label>
+      <div class="status-panel">
+        <div class="status-item">
+          <h4>内存预算</h4>
+          <p>512MB 轻量冲刺模式，动效不臃肿。</p>
+        </div>
+        <div class="status-item">
+          <h4>响应速度</h4>
+          <p>流式输出优先，先到先显示。</p>
+        </div>
+        <div class="status-item">
+          <h4>萌度指数</h4>
+          <p>UI + 模型风格双加成，甜度满格。</p>
+        </div>
+        <div class="status-item">
+          <h4>安全提示</h4>
+          <p>可开启元信息追踪，透明可控。</p>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -264,6 +509,7 @@
 
     const sessionInput = document.getElementById("session");
     const promptInput = document.getElementById("prompt");
+    const styleChips = document.querySelectorAll(".style-chip");
 
     function loadSessionId() {
       const stored = localStorage.getItem("session_id");
@@ -387,6 +633,13 @@
 
     loadSessionId();
     loadCommands();
+
+    styleChips.forEach((chip) => {
+      chip.addEventListener("click", () => {
+        promptInput.value = chip.dataset.prompt;
+        promptInput.focus();
+      });
+    });
   </script>
 </body>
 </html>

@@ -1,11 +1,12 @@
 from collections import OrderedDict, deque
 from datetime import datetime
+import json
 import re
 import time
 from typing import Any, Deque, Dict, List, Optional, Tuple
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -24,7 +25,26 @@ from agent_runtime import (
     ToolResult,
 )
 from knowledge_base import blueprint_payload, retrieve_documents
-from tools import add, get_date, get_time, make_uuid, safe_eval_expression, text_stats
+from tools import (
+    add,
+    dedupe_lines,
+    describe_audio,
+    describe_file,
+    describe_image,
+    estimate_tokens,
+    extract_emails,
+    extract_urls,
+    get_date,
+    get_time,
+    json_prettify,
+    make_uuid,
+    markdown_outline,
+    normalize_whitespace,
+    safe_eval_expression,
+    slugify,
+    text_stats,
+    top_keywords,
+)
 
 app = FastAPI()
 MAX_HISTORY_TURNS = 10
@@ -32,6 +52,7 @@ MAX_SESSIONS = 200
 STARTED_AT = time.monotonic()
 STARTED_AT_WALL = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 OBS_LOG_LIMIT = 200
+MAX_UPLOAD_BYTES = 6 * 1024 * 1024
 
 answer_cache: "OrderedDict[Tuple[str, str], str]" = OrderedDict()
 MAX_CACHE_ITEMS = 256
@@ -105,6 +126,75 @@ tool_registry = ToolRegistry(
                 {"tool": "len"},
             ),
             keywords=["字数", "文本统计", "len"],
+        ),
+        Tool(
+            name="normalize_whitespace",
+            description="清理多余空白并规范文本",
+            handler=lambda text: ToolResult(normalize_whitespace(text), {"tool": "normalize_whitespace"}),
+            keywords=["空白", "清理空格", "normalize"],
+        ),
+        Tool(
+            name="slugify",
+            description="生成 URL slug",
+            handler=lambda text: ToolResult(slugify(text), {"tool": "slugify"}),
+            keywords=["slug", "短链", "标题转链接"],
+        ),
+        Tool(
+            name="extract_urls",
+            description="提取文本中的 URL",
+            handler=lambda text: ToolResult(
+                json.dumps(extract_urls(text), ensure_ascii=False, indent=2),
+                {"tool": "extract_urls"},
+            ),
+            keywords=["url", "链接", "网址"],
+        ),
+        Tool(
+            name="extract_emails",
+            description="提取文本中的邮箱地址",
+            handler=lambda text: ToolResult(
+                json.dumps(extract_emails(text), ensure_ascii=False, indent=2),
+                {"tool": "extract_emails"},
+            ),
+            keywords=["邮箱", "email", "邮件"],
+        ),
+        Tool(
+            name="markdown_outline",
+            description="提取 Markdown 标题大纲",
+            handler=lambda text: ToolResult(
+                json.dumps(markdown_outline(text), ensure_ascii=False, indent=2),
+                {"tool": "markdown_outline"},
+            ),
+            keywords=["markdown", "标题", "大纲"],
+        ),
+        Tool(
+            name="dedupe_lines",
+            description="按行去重并保留顺序",
+            handler=lambda text: ToolResult(dedupe_lines(text), {"tool": "dedupe_lines"}),
+            keywords=["去重", "重复", "dedupe"],
+        ),
+        Tool(
+            name="top_keywords",
+            description="统计高频关键词",
+            handler=lambda text: ToolResult(
+                json.dumps(top_keywords(text), ensure_ascii=False, indent=2),
+                {"tool": "top_keywords"},
+            ),
+            keywords=["关键词", "高频", "top"],
+        ),
+        Tool(
+            name="json_prettify",
+            description="格式化 JSON 字符串",
+            handler=lambda text: ToolResult(json_prettify(text), {"tool": "json_prettify"}),
+            keywords=["json", "格式化", "prettify"],
+        ),
+        Tool(
+            name="estimate_tokens",
+            description="估算文本 token 数",
+            handler=lambda text: ToolResult(
+                json.dumps(estimate_tokens(text), ensure_ascii=False, indent=2),
+                {"tool": "estimate_tokens"},
+            ),
+            keywords=["token", "估算", "tokens"],
         ),
     ]
 )
@@ -223,6 +313,11 @@ def features() -> Dict[str, Any]:
             "desc": "用户输入 → 预处理 → 检索 → 生成 → 后处理",
         },
         "tools": tool_registry.summary(),
+        "multimodal": {
+            "file": {"endpoint": "/files/describe", "desc": "文件摘要（大小、hash、预览）"},
+            "image": {"endpoint": "/images/describe", "desc": "图片信息（格式、尺寸、hash）"},
+            "audio": {"endpoint": "/audio/describe", "desc": "音频信息（wav 时长）"},
+        },
         "memory": {
             "window_turns": MAX_HISTORY_TURNS,
             "long_term": "vector-store (规划中，512MB 建议外部托管)",
@@ -231,6 +326,7 @@ def features() -> Dict[str, Any]:
             "max_history_turns": MAX_HISTORY_TURNS,
             "max_sessions": MAX_SESSIONS,
             "cache_size": MAX_CACHE_ITEMS,
+            "max_upload_bytes": MAX_UPLOAD_BYTES,
         },
         "modes": [
             {"id": "advisor", "desc": "架构建议模式：按固定结构输出升级建议"},
@@ -251,6 +347,13 @@ def features() -> Dict[str, Any]:
             ]
         },
     }
+
+
+async def _read_upload(upload: UploadFile) -> bytes:
+    data = await upload.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="上传文件过大")
+    return data
 
 
 @app.get("/stats")
@@ -346,6 +449,29 @@ def run_tool(req: ToolRunRequest) -> Dict[str, Any]:
     except ValueError as exc:
         return {"ok": False, "error": f"工具调用失败：{exc}"}
     return {"ok": True, "output": result.output, "meta": result.meta}
+
+
+@app.post("/files/describe")
+async def describe_uploaded_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+    data = await _read_upload(file)
+    info = describe_file(data, file.filename or "upload", file.content_type or "application/octet-stream")
+    return {"ok": True, "file": info}
+
+
+@app.post("/images/describe")
+async def describe_uploaded_image(file: UploadFile = File(...)) -> Dict[str, Any]:
+    data = await _read_upload(file)
+    info = describe_image(data, file.filename or "image", file.content_type or "application/octet-stream")
+    if info.get("format") == "unknown":
+        raise HTTPException(status_code=400, detail="未识别为图片格式")
+    return {"ok": True, "image": info}
+
+
+@app.post("/audio/describe")
+async def describe_uploaded_audio(file: UploadFile = File(...)) -> Dict[str, Any]:
+    data = await _read_upload(file)
+    info = describe_audio(data, file.filename or "audio", file.content_type or "application/octet-stream")
+    return {"ok": True, "audio": info}
 
 
 @app.post("/rag/preview")

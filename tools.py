@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
 import ast
+import hashlib
+import imghdr
+import json
+import math
+import re
+from datetime import datetime
+from io import BytesIO
 import operator
 import uuid
 from typing import Any, Dict
+import wave
 
 
 def get_time() -> str:
@@ -92,4 +99,182 @@ def text_stats(text: str) -> Dict[str, Any]:
         "chars": len(text),
         "chars_no_space": len(stripped.replace(" ", "")),
         "words": len([part for part in stripped.split() if part]),
+    }
+
+
+def normalize_whitespace(text: str) -> str:
+    """压缩多余空白并去除首尾空格。"""
+    return " ".join(text.split())
+
+
+def slugify(text: str) -> str:
+    """将文本转为 URL slug。"""
+    lowered = text.strip().lower()
+    slug = re.sub(r"[^a-z0-9\-\s]", "", lowered)
+    slug = re.sub(r"[\s\-]+", "-", slug)
+    return slug.strip("-")
+
+
+def extract_urls(text: str) -> Dict[str, Any]:
+    """提取文本中的 URL。"""
+    urls = re.findall(r"https?://[^\s)\]]+", text)
+    return {"count": len(urls), "items": urls}
+
+
+def extract_emails(text: str) -> Dict[str, Any]:
+    """提取文本中的邮箱地址。"""
+    emails = re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
+    return {"count": len(emails), "items": emails}
+
+
+def markdown_outline(text: str) -> Dict[str, Any]:
+    """提取 Markdown 标题大纲。"""
+    outline = []
+    for line in text.splitlines():
+        match = re.match(r"^(#{1,6})\s+(.*)", line.strip())
+        if match:
+            outline.append({"level": len(match.group(1)), "title": match.group(2).strip()})
+    return {"count": len(outline), "items": outline}
+
+
+def dedupe_lines(text: str) -> str:
+    """按行去重，保留首次出现顺序。"""
+    seen = set()
+    unique_lines = []
+    for line in text.splitlines():
+        if line in seen:
+            continue
+        seen.add(line)
+        unique_lines.append(line)
+    return "\n".join(unique_lines)
+
+
+def top_keywords(text: str, top_n: int = 6) -> Dict[str, Any]:
+    """统计高频关键词。"""
+    words = re.findall(r"[\w\u4e00-\u9fff]+", text.lower())
+    filtered = [word for word in words if len(word) > 1]
+    counts: Dict[str, int] = {}
+    for word in filtered:
+        counts[word] = counts.get(word, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return {
+        "count": len(ranked),
+        "items": [
+            {"word": word, "count": count} for word, count in ranked[: max(1, top_n)]
+        ],
+    }
+
+
+def json_prettify(text: str) -> str:
+    """格式化 JSON 字符串。"""
+    payload = json.loads(text)
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def estimate_tokens(text: str) -> Dict[str, Any]:
+    """粗略估算 token 数量。"""
+    est = math.ceil(len(text) / 4)
+    return {"chars": len(text), "estimated_tokens": est}
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _text_preview(data: bytes, limit: int = 1200) -> str:
+    if not data:
+        return ""
+    decoded = data.decode("utf-8", errors="replace")
+    return decoded[:limit]
+
+
+def describe_file(data: bytes, filename: str, content_type: str) -> Dict[str, Any]:
+    """返回文件的基础描述信息。"""
+    return {
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": len(data),
+        "sha256": _sha256(data),
+        "text_preview": _text_preview(data),
+    }
+
+
+def _png_size(data: bytes) -> Dict[str, int]:
+    if len(data) < 24:
+        return {}
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return {}
+    width = int.from_bytes(data[16:20], "big")
+    height = int.from_bytes(data[20:24], "big")
+    return {"width": width, "height": height}
+
+
+def _gif_size(data: bytes) -> Dict[str, int]:
+    if len(data) < 10:
+        return {}
+    width = int.from_bytes(data[6:8], "little")
+    height = int.from_bytes(data[8:10], "little")
+    return {"width": width, "height": height}
+
+
+def _jpeg_size(data: bytes) -> Dict[str, int]:
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        return {}
+    idx = 2
+    while idx < len(data) - 1:
+        if data[idx] != 0xFF:
+            idx += 1
+            continue
+        marker = data[idx + 1]
+        if marker in {0xC0, 0xC2}:
+            if idx + 8 >= len(data):
+                return {}
+            height = int.from_bytes(data[idx + 5 : idx + 7], "big")
+            width = int.from_bytes(data[idx + 7 : idx + 9], "big")
+            return {"width": width, "height": height}
+        if idx + 3 >= len(data):
+            break
+        seg_length = int.from_bytes(data[idx + 2 : idx + 4], "big")
+        if seg_length < 2:
+            break
+        idx += 2 + seg_length
+    return {}
+
+
+def describe_image(data: bytes, filename: str, content_type: str) -> Dict[str, Any]:
+    """返回图片的基础描述信息。"""
+    kind = imghdr.what(None, h=data) or "unknown"
+    size = {}
+    if kind == "png":
+        size = _png_size(data)
+    elif kind == "gif":
+        size = _gif_size(data)
+    elif kind in {"jpeg", "jpg"}:
+        size = _jpeg_size(data)
+    return {
+        "filename": filename,
+        "content_type": content_type,
+        "format": kind,
+        "size_bytes": len(data),
+        "sha256": _sha256(data),
+        **size,
+    }
+
+
+def describe_audio(data: bytes, filename: str, content_type: str) -> Dict[str, Any]:
+    """返回音频基础信息（wav 可解析时长）。"""
+    duration = None
+    try:
+        with wave.open(BytesIO(data)) as wav:
+            frames = wav.getnframes()
+            rate = wav.getframerate()
+            duration = round(frames / float(rate), 2) if rate else None
+    except wave.Error:
+        duration = None
+    return {
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": len(data),
+        "sha256": _sha256(data),
+        "duration_seconds": duration,
     }

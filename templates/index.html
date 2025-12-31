@@ -27,7 +27,7 @@
     }
 
     .wrap {
-      max-width: 900px;
+      max-width: 960px;
       margin: 40px auto;
       padding: 0 16px 60px;
     }
@@ -66,18 +66,25 @@
       margin-bottom: 8px;
     }
 
-    textarea {
+    textarea,
+    input[type="text"] {
       width: 100%;
-      min-height: 150px;
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 14px;
-      font-size: 16px;
+      padding: 12px 14px;
+      font-size: 15px;
       outline: none;
       transition: border .2s, box-shadow .2s;
       background: #fff;
     }
-    textarea:focus {
+
+    textarea {
+      min-height: 140px;
+      resize: vertical;
+    }
+
+    textarea:focus,
+    input[type="text"]:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.15);
     }
@@ -90,6 +97,21 @@
       margin-top: 12px;
     }
 
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
     button {
       background: var(--primary);
       color: #fff;
@@ -100,8 +122,14 @@
       cursor: pointer;
       transition: transform .06s, background .2s;
     }
+
     button:hover { background: var(--primary-dark); }
     button:active { transform: scale(0.98); }
+
+    .ghost {
+      background: #eef2ff;
+      color: var(--primary-dark);
+    }
 
     .status {
       font-size: 14px;
@@ -116,6 +144,7 @@
       background: #d1d5db;
       display: inline-block;
     }
+
     .dot.loading {
       background: var(--primary);
       animation: pulse 1s infinite ease-in-out;
@@ -143,6 +172,33 @@
       font-size: 13px;
     }
 
+    .meta {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      background: #faf7ff;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
     .footer {
       margin-top: 24px;
       text-align: center;
@@ -163,18 +219,40 @@
       <label for="q">你的问题</label>
       <textarea id="q" placeholder="例如：用中文解释 REST API，并给一个例子"></textarea>
 
+      <div class="grid">
+        <div>
+          <label for="session">会话 ID（用于多轮上下文）</label>
+          <input id="session" type="text" />
+        </div>
+        <div>
+          <label for="prompt">自定义风格提示词</label>
+          <input id="prompt" type="text" placeholder="例如：请用专业但简洁的语气回答" />
+        </div>
+      </div>
+
       <div class="row">
+        <label class="toggle"><input id="stream" type="checkbox" checked /> 流式输出</label>
+        <label class="toggle"><input id="meta" type="checkbox" /> 显示元信息</label>
         <button onclick="ask()">提问</button>
+        <button class="ghost" onclick="clearSession()">清空会话</button>
         <span class="status">
           <span id="dot" class="dot"></span>
           <span id="statusText">等待输入</span>
         </span>
       </div>
+      <p class="muted">提示：开启“元信息”时会自动关闭流式输出。</p>
+    </div>
+
+    <div class="card">
+      <label>极速指令（后端本地执行）</label>
+      <div id="commands" class="pill-list"></div>
+      <p class="muted">点击指令可自动填充到输入框。</p>
     </div>
 
     <div class="card">
       <label>回答</label>
       <pre id="ans">这里会显示 AI 的回答～</pre>
+      <div id="metaPanel" class="meta">元信息会显示在这里。</div>
     </div>
 
     <div class="footer">Made with ❤️ by iehmltym</div>
@@ -184,26 +262,94 @@
     const API_BASE = "https://myagent-mhrq.onrender.com";
     document.getElementById("apiBase").textContent = API_BASE;
 
+    const sessionInput = document.getElementById("session");
+    const promptInput = document.getElementById("prompt");
+
+    function loadSessionId() {
+      const stored = localStorage.getItem("session_id");
+      if (stored) {
+        sessionInput.value = stored;
+        return;
+      }
+      const generated = `web-${crypto.randomUUID()}`;
+      localStorage.setItem("session_id", generated);
+      sessionInput.value = generated;
+    }
+
+    async function loadCommands() {
+      try {
+        const resp = await fetch(`${API_BASE}/features`);
+        if (!resp.ok) throw new Error("无法获取特性列表");
+        const data = await resp.json();
+        const container = document.getElementById("commands");
+        container.innerHTML = "";
+        data.commands.forEach((item) => {
+          const pill = document.createElement("button");
+          pill.type = "button";
+          pill.className = "pill";
+          pill.textContent = `${item.cmd} · ${item.desc}`;
+          pill.addEventListener("click", () => {
+            document.getElementById("q").value = item.cmd;
+          });
+          container.appendChild(pill);
+        });
+      } catch (e) {
+        document.getElementById("commands").textContent = "命令加载失败，请稍后重试。";
+      }
+    }
+
+    async function clearSession() {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) {
+        alert("请先填写会话 ID");
+        return;
+      }
+      await fetch(`${API_BASE}/session/clear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      alert("会话已清空（或不存在）");
+    }
+
     async function ask() {
       const question = document.getElementById("q").value.trim();
       const statusText = document.getElementById("statusText");
       const dot = document.getElementById("dot");
       const ans = document.getElementById("ans");
+      const metaPanel = document.getElementById("metaPanel");
 
       if (!question) {
         ans.textContent = "请先输入问题哦～";
         return;
       }
 
+      const streamToggle = document.getElementById("stream");
+      const metaToggle = document.getElementById("meta");
+      let stream = streamToggle.checked;
+      const includeMeta = metaToggle.checked;
+      if (includeMeta) {
+        stream = false;
+      }
+
+      const payload = {
+        question,
+        stream,
+        include_meta: includeMeta,
+        session_id: sessionInput.value.trim() || null,
+        system_prompt: promptInput.value.trim() || null
+      };
+
       statusText.textContent = "请求中...";
       dot.classList.add("loading");
       ans.textContent = "";
+      metaPanel.textContent = "元信息会显示在这里。";
 
       try {
         const resp = await fetch(`${API_BASE}/ask`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, stream: false })
+          body: JSON.stringify(payload)
         });
 
         if (!resp.ok) {
@@ -211,8 +357,23 @@
           throw new Error(`HTTP ${resp.status}: ${t}`);
         }
 
-        const data = await resp.json();
-        ans.textContent = data.answer ?? "(后端没有返回 answer 字段)";
+        if (stream) {
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          ans.textContent = "";
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            ans.textContent += decoder.decode(value, { stream: true });
+          }
+        } else {
+          const data = await resp.json();
+          ans.textContent = data.answer ?? "(后端没有返回 answer 字段)";
+          if (data.meta) {
+            metaPanel.textContent = `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms`;
+          }
+        }
+
         statusText.textContent = "完成 ✅";
       } catch (e) {
         statusText.textContent = "失败 ❌";
@@ -223,6 +384,9 @@
         dot.classList.remove("loading");
       }
     }
+
+    loadSessionId();
+    loadCommands();
   </script>
 </body>
 </html>

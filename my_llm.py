@@ -24,19 +24,30 @@ class MyGeminiLLM:
     - 提供统一的 generate(prompt) 方法
     """
 
+    _configured: bool = False
+    _shared_model_name: Optional[str] = None
+    _shared_model: Optional[genai.GenerativeModel] = None
+
     def __init__(self, config: Optional[GeminiConfig] = None):
         # 如果外部传了 config，就用外部的；否则使用默认 GeminiConfig()
         self.config = config or GeminiConfig()
 
-        # 配置 SDK：把 API Key 告诉 genai（内部会用于请求鉴权）
-        # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
-        genai.configure(api_key=load_google_api_key())
+        if not MyGeminiLLM._configured:
+            # 配置 SDK：把 API Key 告诉 genai（内部会用于请求鉴权）
+            # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
+            genai.configure(api_key=load_google_api_key())
+            MyGeminiLLM._configured = True
 
-        # 自动选择一个当前账号可用且支持 generateContent 的模型名
-        self.model_name = self._select_available_model()
+        if not MyGeminiLLM._shared_model_name:
+            # 自动选择一个当前账号可用且支持 generateContent 的模型名
+            MyGeminiLLM._shared_model_name = self._select_available_model()
 
-        # 用选择到的模型名创建模型对象
-        self.model = genai.GenerativeModel(self.model_name)
+        if not MyGeminiLLM._shared_model:
+            # 用选择到的模型名创建模型对象
+            MyGeminiLLM._shared_model = genai.GenerativeModel(MyGeminiLLM._shared_model_name)
+
+        self.model_name = MyGeminiLLM._shared_model_name
+        self.model = MyGeminiLLM._shared_model
 
     def _select_available_model(self) -> str:
         """

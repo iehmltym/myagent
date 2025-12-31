@@ -56,6 +56,26 @@ KNOWLEDGE_BASE: List[Dict[str, Any]] = [
         "keywords": ["agent", "tools", "function", "tool calling", "调用"],
     },
     {
+        "id": "core-multimodal",
+        "title": "多模态输入（文本/图片/文件/语音）",
+        "category": "core",
+        "content": (
+            "统一接收图片、文件、音频输入，抽取结构化摘要再喂给模型。"
+            "价值：让 Agent 处理真实业务素材（合同、截图、语音记录）。"
+        ),
+        "keywords": ["multimodal", "多模态", "图片", "文件", "语音", "audio"],
+    },
+    {
+        "id": "core-toolkit",
+        "title": "工具箱能力（文本清洗/抽取/JSON/关键词）",
+        "category": "core",
+        "content": (
+            "提供文本清洗、URL/邮箱抽取、Markdown 大纲、关键词统计等基础工具。"
+            "价值：让 LLM 更像业务处理器，输出可直接下游使用的数据。"
+        ),
+        "keywords": ["toolkit", "extract", "keyword", "markdown", "json"],
+    },
+    {
         "id": "core-memory",
         "title": "Memory / State（对话记忆）",
         "category": "core",
@@ -74,6 +94,16 @@ KNOWLEDGE_BASE: List[Dict[str, Any]] = [
             "适合客服、运维助手、代码分析、自动化工作台，但多轮调用会消耗 token 和延迟。"
         ),
         "keywords": ["agent", "tools", "控制器", "自动化", "运维", "客服"],
+    },
+    {
+        "id": "use-multimodal",
+        "title": "多模态场景落地",
+        "category": "use",
+        "content": (
+            "文件上传 → 解析元数据 → 结构化摘要 → 进入 RAG/Agent 流程。"
+            "适合合同审阅、图片质检、语音会议纪要。"
+        ),
+        "keywords": ["多模态", "文件上传", "图片", "语音", "摘要"],
     },
     {
         "id": "use-rag",

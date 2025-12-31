@@ -98,9 +98,10 @@ def tool_time(_: Dict[str, Any]) -> str:
 def tool_rag_search(args: Dict[str, Any]) -> str:
     """工具：执行 RAG 检索并返回摘要。"""
     query = str(args.get("query", ""))
-    docs = retriever.get_relevant_documents(query)
-    reranked = reranker.rerank(query, docs, top_k=3)
-    compressed = compressor.compress(reranked)
+    _, _, local_retriever, local_reranker, local_compressor = get_rag_components()
+    docs = local_retriever.get_relevant_documents(query)
+    reranked = local_reranker.rerank(query, docs, top_k=3)
+    compressed = local_compressor.compress(reranked)
     return "\n".join(doc.content for doc in compressed)
 
 
@@ -150,6 +151,60 @@ def get_rag_synthesizer() -> AnswerSynthesizer:
     if _rag_synthesizer is None:
         _rag_synthesizer = AnswerSynthesizer(llm=get_llm_service().llm)
     return _rag_synthesizer
+
+
+def _ensure_rag_components() -> None:
+    """
+    确保 RAG 相关组件已初始化。
+    所有组件按需创建，避免应用启动时就占用内存。
+    """
+    global _embedding_model, _vector_store, _text_splitter, _retriever, _reranker, _compressor
+    global _default_docs_loaded
+    if _embedding_model is None:
+        _embedding_model = SimpleHashEmbedding(dims=128)
+    if _vector_store is None:
+        _vector_store = InMemoryVectorStore(embedding_model=_embedding_model)
+    if _text_splitter is None:
+        _text_splitter = SimpleTextSplitter(chunk_size=400, chunk_overlap=80)
+    if _retriever is None:
+        _retriever = VectorStoreRetriever(
+            store=_vector_store, top_k=4, score_threshold=0.1, use_mmr=True
+        )
+    if _reranker is None:
+        _reranker = OverlapReranker()
+    if _compressor is None:
+        _compressor = ContextualCompressor(max_chars=800)
+    if not _default_docs_loaded:
+        default_docs = [
+            Document(
+                content="RAG 是检索增强生成，通过向量检索获取外部资料，再让模型综合回答。",
+                metadata={"id": "rag-001", "source": "builtin"},
+            ),
+            Document(
+                content="Agent 适合开放式任务编排，可结合工具调用与记忆管理完成复杂任务。",
+                metadata={"id": "agent-001", "source": "builtin"},
+            ),
+            Document(
+                content="LCEL/Runnable 思维强调可组合性：prompt -> model -> parser -> tool。",
+                metadata={"id": "lcel-001", "source": "builtin"},
+            ),
+        ]
+        _vector_store.add_documents(_text_splitter.split_documents(default_docs))
+        _default_docs_loaded = True
+
+
+def get_rag_components() -> Tuple[
+    InMemoryVectorStore,
+    SimpleTextSplitter,
+    VectorStoreRetriever,
+    OverlapReranker,
+    ContextualCompressor,
+]:
+    """
+    返回 RAG 相关组件（确保已初始化）。
+    """
+    _ensure_rag_components()
+    return _vector_store, _text_splitter, _retriever, _reranker, _compressor
 
 
 def get_agent() -> SimpleAgent:
@@ -356,6 +411,7 @@ async def llm_async(req: LLMRequest):
 def rag_ingest(req: RAGIngestRequest):
     """文档接入：接收文档并执行切分 + 入库。"""
     span = trace_store.start_span("rag_ingest", inputs={"docs": str(len(req.documents))})
+    vector_store, text_splitter, _, _, _ = get_rag_components()
     docs = [Document(content=doc.content, metadata=doc.metadata) for doc in req.documents]
     chunks = text_splitter.split_documents(docs)
     vector_store.add_documents(chunks)
@@ -367,11 +423,12 @@ def rag_ingest(req: RAGIngestRequest):
 def rag_ask(req: RAGAskRequest):
     """RAG 主流程：检索 -> rerank -> 压缩 -> 合成答案。"""
     span = trace_store.start_span("rag_ask", inputs={"question": req.question})
+    _, _, local_retriever, local_reranker, local_compressor = get_rag_components()
     # 检索阶段
-    retrieved = retriever.get_relevant_documents(req.question)
+    retrieved = local_retriever.get_relevant_documents(req.question)
     # rerank + 压缩上下文
-    reranked = reranker.rerank(req.question, retrieved, top_k=req.top_k)
-    compressed_docs = compressor.compress(reranked)
+    reranked = local_reranker.rerank(req.question, retrieved, top_k=req.top_k)
+    compressed_docs = local_compressor.compress(reranked)
     # 合成答案
     answer = get_rag_synthesizer().synthesize(
         req.question, compressed_docs, mode=req.mode

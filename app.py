@@ -1,12 +1,11 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import re
 from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
-from my_llm import MyGeminiLLM
 from my_custom_llm import MyCustomGeminiLLM
 from tools import add, get_time
 
@@ -14,6 +13,7 @@ app = FastAPI()
 # 会话历史字典：key 是 session_id，value 是 [(question, answer), ...]
 # 用于在多轮对话中保留上下文，便于拼接成连续对话的 prompt
 sessions: Dict[str, List[Tuple[str, str]]] = {}
+MAX_HISTORY_TURNS = 10
 
 # 允许你的 GitHub Pages 调用（/ai 仍属于同一域名）
 app.add_middleware(
@@ -27,8 +27,6 @@ app.add_middleware(
     max_age=86400,
 )
 
-# 全局默认的 LLM 实例（不带 system prompt 的情况使用它）
-llm = MyGeminiLLM()
 # 默认的可爱语气 system prompt（当用户未提供时使用）
 DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
 
@@ -41,6 +39,8 @@ class QuestionRequest(BaseModel):
     # 会话 ID：用于区分不同用户/对话的上下文
     # 为空时表示单轮请求，不记录历史
     session_id: Optional[str] = None
+    # 是否启用流式响应（默认 True 兼容旧版前端）
+    stream: bool = True
 
 
 @app.get("/health")
@@ -67,13 +67,27 @@ def index():
 @app.post("/ask")
 def ask_question(req: QuestionRequest):
     # 取出用户输入的问题文本，便于后续处理
-    question = req.question
+    question = req.question.strip()
+    stream = req.stream
+
+    def respond_text(answer: str):
+        if stream:
+            def answer_stream():
+                yield answer
+
+            return StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
+        return JSONResponse({"answer": answer})
+
+    def update_history(session_key: Optional[str], answer: str):
+        if not session_key:
+            return
+        history = sessions.setdefault(session_key, [])
+        history.append((question, answer))
+        if len(history) > MAX_HISTORY_TURNS:
+            sessions[session_key] = history[-MAX_HISTORY_TURNS:]
     # 规则 1：如果问题中出现“现在几点”或“今天日期”，直接返回当前时间
     if "现在几点" in question or "今天日期" in question:
-        def time_stream():
-            yield get_time()
-
-        return StreamingResponse(time_stream(), media_type="text/plain; charset=utf-8")
+        return respond_text(get_time())
 
     # 规则 2：如果问题符合 “a+b=?” 形式，解析出 a、b 并计算
     # 说明：下面这个正则允许空格和小数，比如 " 1 + 2 = ? "
@@ -83,10 +97,7 @@ def ask_question(req: QuestionRequest):
         left = float(math_match.group(1))
         right = float(math_match.group(2))
         # 计算完成后直接返回，避免走 LLM
-        def math_stream():
-            yield str(add(left, right))
-
-        return StreamingResponse(math_stream(), media_type="text/plain; charset=utf-8")
+        return respond_text(str(add(left, right)))
 
     # 如果前端传了 system_prompt，就用它；
     # 否则使用默认的可爱语气 prompt。
@@ -101,20 +112,22 @@ def ask_question(req: QuestionRequest):
     # 将历史记录拼成连续对话的 prompt，格式如：
     # 用户：... \n 助手：... \n 用户：... \n 助手：...
     history_prompt = "".join(
-        f"用户：{question}\n助手：{response}\n" for question, response in history
+        f"用户：{user_question}\n助手：{response}\n" for user_question, response in history
     )
     # 拼接本次问题，提示模型继续回复助手内容
     prompt = f"{history_prompt}用户：{req.question}\n助手："
     # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
+    if not stream:
+        answer = active_llm.generate(prompt, max_output_tokens=2048)
+        update_history(session_id, answer)
+        return JSONResponse({"answer": answer})
+
     def answer_stream():
         answer_parts = []
         for chunk in active_llm.generate_stream(prompt, max_output_tokens=2048):
             answer_parts.append(chunk)
             yield chunk
-        if session_id:
-            answer = "".join(answer_parts)
-            # 仅当 session_id 有效时才记录历史，避免无意义的全局堆积
-            history.append((req.question, answer))
+        update_history(session_id, "".join(answer_parts))
 
     return StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
 

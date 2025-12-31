@@ -638,6 +638,25 @@
     </div>
 
     <div class="card">
+      <h3 class="section-title">📎 多模态附件（图片 / 音频 / 文件）</h3>
+      <p class="section-subtitle">上传后先预览结构化摘要，再带着摘要发问。</p>
+      <div class="grid">
+        <div>
+          <label for="attachment">选择附件</label>
+          <input id="attachment" type="file" />
+          <p class="form-hint">支持图片、音频与通用文件（<= 6MB）。</p>
+        </div>
+        <div>
+          <label>附件摘要</label>
+          <pre id="attachmentPreview">尚未上传</pre>
+        </div>
+      </div>
+      <div class="row">
+        <button class="ghost" onclick="previewAttachment()">预览附件摘要</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3 class="section-title">🧠 LLM 控制面板</h3>
       <p class="section-subtitle">统一配置 Provider、温度、token、回退与重试策略。</p>
       <div class="grid">
@@ -761,6 +780,7 @@
 
     const sessionInput = document.getElementById("session");
     const promptInput = document.getElementById("prompt");
+    const attachmentInput = document.getElementById("attachment");
     const styleChips = document.querySelectorAll(".style-chip");
 
     function loadSessionId() {
@@ -946,6 +966,32 @@
       alert("会话已清空（或不存在）");
     }
 
+    async function previewAttachment() {
+      const preview = document.getElementById("attachmentPreview");
+      const file = attachmentInput?.files?.[0];
+      if (!file) {
+        preview.textContent = "请先选择附件。";
+        return;
+      }
+      preview.textContent = "分析中...";
+      let endpoint = "/files/describe";
+      if (file.type.startsWith("image/")) {
+        endpoint = "/images/describe";
+      } else if (file.type.startsWith("audio/")) {
+        endpoint = "/audio/describe";
+      }
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const resp = await fetch(`${apiBase}${endpoint}`, { method: "POST", body: form });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        preview.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        preview.textContent = `解析失败：${e.message}`;
+      }
+    }
+
     function fillAdvisorPrompt() {
       document.getElementById("q").value =
         "按“核心能力（LangChain 能做什么）→ 典型用法 → Render 512MB 落地建议 → 下一步升级”的结构说明。";
@@ -974,7 +1020,6 @@
       const ragToggle = document.getElementById("rag");
       const toolsToggle = document.getElementById("enableTools");
       const routerToggle = document.getElementById("enableRouter");
-      const attachmentInput = document.getElementById("attachment");
       const attachment = attachmentInput?.files?.[0] || null;
       let stream = streamToggle.checked;
       const includeMeta = metaToggle.checked;

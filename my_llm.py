@@ -1,8 +1,11 @@
 from dataclasses import dataclass          # dataclass：快速定义“配置类”，自动生成 __init__ 等
+import importlib
 import os
-from typing import Optional, Dict, Any, List  # 类型提示：让代码更清晰（运行不依赖它们）
-import google.generativeai as genai        # Google Gemini SDK（官方库）
+from typing import Optional, Dict, Any, List, TYPE_CHECKING  # 类型提示：让代码更清晰（运行不依赖它们）
 from env_utils import load_google_api_key  # 导入我们写的函数：读取 API Key
+
+if TYPE_CHECKING:
+    import google.generativeai as genai  # pragma: no cover
 
 
 @dataclass
@@ -35,9 +38,9 @@ class MyGeminiLLM:
         # 如果外部传了 config，就用外部的；否则使用默认 GeminiConfig()
         self.config = config or GeminiConfig()
 
-        # 配置 SDK：把 API Key 告诉 genai（内部会用于请求鉴权）
-        # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
-        genai.configure(api_key=load_google_api_key())
+        # 仅保存 API Key，真正的 SDK 初始化延迟到首次调用时再进行
+        self._api_key = load_google_api_key()
+        self._genai: Optional["genai"] = None
 
         # 指定模型优先级：config > 环境变量 > 默认值/自动选择
         # 这样可以避免启动时就拉取模型列表，降低内存占用
@@ -46,6 +49,15 @@ class MyGeminiLLM:
         # 注意：这里先不创建真正的模型对象（延迟到第一次生成时再创建）
         # 这样可以减少应用启动阶段的内存使用
         self.model = None
+
+    def _load_genai(self) -> "genai":
+        """
+        延迟加载 google.generativeai，避免应用启动时占用大量内存。
+        """
+        if self._genai is None:
+            self._genai = importlib.import_module("google.generativeai")
+            self._genai.configure(api_key=self._api_key)
+        return self._genai
 
     def _resolve_model_name(self) -> str:
         """
@@ -77,6 +89,7 @@ class MyGeminiLLM:
         candidates: List[str] = []  # 存放候选模型名
 
         # genai.list_models()：向 Google 请求“当前 API Key 可用的模型列表”
+        genai = self._load_genai()
         for m in genai.list_models():
             # 每个模型对象通常有 supported_generation_methods 属性
             # 可能是 ['generateContent', ...]
@@ -107,6 +120,7 @@ class MyGeminiLLM:
         只有在第一次真正生成内容时才创建，节省启动内存。
         """
         if self.model is None:
+            genai = self._load_genai()
             self.model = genai.GenerativeModel(self.model_name)
 
     def generate(self, prompt: str, **kwargs: Any) -> str:

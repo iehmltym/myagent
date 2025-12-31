@@ -49,35 +49,21 @@ app.add_middleware(
 )
 
 # 全局默认的 LLM 服务封装（包含缓存、限流、重试等工程能力）
-llm_service = LLMService(cost_per_1k=0.0)
+# 先设为 None，等真正需要调用模型时才创建（省内存）
+_llm_service: Optional[LLMService] = None
 # 默认的可爱语气 system prompt（当用户未提供时使用）
 DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
 
-# ===== RAG 的全局组件 =====
-embedding_model = SimpleHashEmbedding(dims=128)
-vector_store = InMemoryVectorStore(embedding_model=embedding_model)
-text_splitter = SimpleTextSplitter(chunk_size=400, chunk_overlap=80)
-retriever = VectorStoreRetriever(store=vector_store, top_k=4, score_threshold=0.1, use_mmr=True)
-reranker = OverlapReranker()
-compressor = ContextualCompressor(max_chars=800)
-rag_synthesizer = AnswerSynthesizer(llm=llm_service.llm)
-
-# 默认示例知识库：让 RAG 即开即用（可通过 /rag/ingest 覆盖/追加）
-default_docs = [
-    Document(
-        content="RAG 是检索增强生成，通过向量检索获取外部资料，再让模型综合回答。",
-        metadata={"id": "rag-001", "source": "builtin"},
-    ),
-    Document(
-        content="Agent 适合开放式任务编排，可结合工具调用与记忆管理完成复杂任务。",
-        metadata={"id": "agent-001", "source": "builtin"},
-    ),
-    Document(
-        content="LCEL/Runnable 思维强调可组合性：prompt -> model -> parser -> tool。",
-        metadata={"id": "lcel-001", "source": "builtin"},
-    ),
-]
-vector_store.add_documents(text_splitter.split_documents(default_docs))
+# ===== RAG 的全局组件（全部延迟初始化）=====
+_embedding_model: Optional[SimpleHashEmbedding] = None
+_vector_store: Optional[InMemoryVectorStore] = None
+_text_splitter: Optional[SimpleTextSplitter] = None
+_retriever: Optional[VectorStoreRetriever] = None
+_reranker: Optional[OverlapReranker] = None
+_compressor: Optional[ContextualCompressor] = None
+# RAG 答案合成器也延迟创建，避免启动时就初始化模型
+_rag_synthesizer: Optional[AnswerSynthesizer] = None
+_default_docs_loaded = False
 
 # ===== 观测能力 =====
 trace_store = TraceStore()
@@ -96,9 +82,10 @@ def tool_time(_: Dict[str, Any]) -> str:
 def tool_rag_search(args: Dict[str, Any]) -> str:
     """工具：执行 RAG 检索并返回摘要。"""
     query = str(args.get("query", ""))
-    docs = retriever.get_relevant_documents(query)
-    reranked = reranker.rerank(query, docs, top_k=3)
-    compressed = compressor.compress(reranked)
+    _, _, local_retriever, local_reranker, local_compressor = get_rag_components()
+    docs = local_retriever.get_relevant_documents(query)
+    reranked = local_reranker.rerank(query, docs, top_k=3)
+    compressed = local_compressor.compress(reranked)
     return "\n".join(doc.content for doc in compressed)
 
 
@@ -122,7 +109,97 @@ tools = [
         func=tool_rag_search,
     ),
 ]
-agent = SimpleAgent(llm=llm_service.llm, tools=tools)
+# Agent 同样延迟创建，只有访问相关接口时才初始化
+_agent: Optional[SimpleAgent] = None
+
+
+def get_llm_service() -> LLMService:
+    """
+    获取 LLMService 单例：
+    - 第一次调用时创建
+    - 后续调用复用同一个实例
+    这样可以把内存压力推迟到真正使用模型的时候。
+    """
+    global _llm_service
+    if _llm_service is None:
+        _llm_service = LLMService(cost_per_1k=0.0)
+    return _llm_service
+
+
+def get_rag_synthesizer() -> AnswerSynthesizer:
+    """
+    获取 RAG 合成器单例：
+    依赖 LLMService，因此也会触发 LLMService 的懒加载。
+    """
+    global _rag_synthesizer
+    if _rag_synthesizer is None:
+        _rag_synthesizer = AnswerSynthesizer(llm=get_llm_service().llm)
+    return _rag_synthesizer
+
+
+def _ensure_rag_components() -> None:
+    """
+    确保 RAG 相关组件已初始化。
+    所有组件按需创建，避免应用启动时就占用内存。
+    """
+    global _embedding_model, _vector_store, _text_splitter, _retriever, _reranker, _compressor
+    global _default_docs_loaded
+    if _embedding_model is None:
+        _embedding_model = SimpleHashEmbedding(dims=128)
+    if _vector_store is None:
+        _vector_store = InMemoryVectorStore(embedding_model=_embedding_model)
+    if _text_splitter is None:
+        _text_splitter = SimpleTextSplitter(chunk_size=400, chunk_overlap=80)
+    if _retriever is None:
+        _retriever = VectorStoreRetriever(
+            store=_vector_store, top_k=4, score_threshold=0.1, use_mmr=True
+        )
+    if _reranker is None:
+        _reranker = OverlapReranker()
+    if _compressor is None:
+        _compressor = ContextualCompressor(max_chars=800)
+    if not _default_docs_loaded:
+        default_docs = [
+            Document(
+                content="RAG 是检索增强生成，通过向量检索获取外部资料，再让模型综合回答。",
+                metadata={"id": "rag-001", "source": "builtin"},
+            ),
+            Document(
+                content="Agent 适合开放式任务编排，可结合工具调用与记忆管理完成复杂任务。",
+                metadata={"id": "agent-001", "source": "builtin"},
+            ),
+            Document(
+                content="LCEL/Runnable 思维强调可组合性：prompt -> model -> parser -> tool。",
+                metadata={"id": "lcel-001", "source": "builtin"},
+            ),
+        ]
+        _vector_store.add_documents(_text_splitter.split_documents(default_docs))
+        _default_docs_loaded = True
+
+
+def get_rag_components() -> Tuple[
+    InMemoryVectorStore,
+    SimpleTextSplitter,
+    VectorStoreRetriever,
+    OverlapReranker,
+    ContextualCompressor,
+]:
+    """
+    返回 RAG 相关组件（确保已初始化）。
+    """
+    _ensure_rag_components()
+    return _vector_store, _text_splitter, _retriever, _reranker, _compressor
+
+
+def get_agent() -> SimpleAgent:
+    """
+    获取 Agent 单例：
+    同样在第一次用到时创建，减少应用启动开销。
+    """
+    global _agent
+    if _agent is None:
+        _agent = SimpleAgent(llm=get_llm_service().llm, tools=tools)
+    return _agent
 
 
 class QuestionRequest(BaseModel):
@@ -256,7 +333,7 @@ def ask_question(req: QuestionRequest):
 def llm_complete(req: LLMRequest):
     """LLM 基础能力演示：同步输出 + token 估算 + 成本估算。"""
     span = trace_store.start_span("llm_complete", inputs={"prompt": req.prompt})
-    completion, usage = llm_service.generate(
+    completion, usage = get_llm_service().generate(
         req.prompt,
         max_output_tokens=req.max_output_tokens,
         temperature=req.temperature,
@@ -274,7 +351,7 @@ def llm_stream(req: LLMRequest):
     span = trace_store.start_span("llm_stream", inputs={"prompt": req.prompt})
 
     def stream():
-        for chunk in llm_service.generate_stream(
+        for chunk in get_llm_service().generate_stream(
             req.prompt, max_output_tokens=req.max_output_tokens, temperature=req.temperature
         ):
             yield chunk
@@ -287,7 +364,9 @@ def llm_stream(req: LLMRequest):
 def llm_batch(req: BatchRequest):
     """LLM 批处理演示。"""
     span = trace_store.start_span("llm_batch", inputs={"size": str(len(req.prompts))})
-    results = llm_service.generate_batch(req.prompts, max_output_tokens=req.max_output_tokens)
+    results = get_llm_service().generate_batch(
+        req.prompts, max_output_tokens=req.max_output_tokens
+    )
     trace_store.finish_span(span, outputs={"status": "ok"})
     return {
         "results": [
@@ -300,7 +379,7 @@ def llm_batch(req: BatchRequest):
 async def llm_async(req: LLMRequest):
     """LLM 异步调用演示。"""
     span = trace_store.start_span("llm_async", inputs={"prompt": req.prompt})
-    completion, usage = await llm_service.generate_async(
+    completion, usage = await get_llm_service().generate_async(
         req.prompt,
         max_output_tokens=req.max_output_tokens,
         temperature=req.temperature,
@@ -316,6 +395,7 @@ async def llm_async(req: LLMRequest):
 def rag_ingest(req: RAGIngestRequest):
     """文档接入：接收文档并执行切分 + 入库。"""
     span = trace_store.start_span("rag_ingest", inputs={"docs": str(len(req.documents))})
+    vector_store, text_splitter, _, _, _ = get_rag_components()
     docs = [Document(content=doc.content, metadata=doc.metadata) for doc in req.documents]
     chunks = text_splitter.split_documents(docs)
     vector_store.add_documents(chunks)
@@ -327,13 +407,16 @@ def rag_ingest(req: RAGIngestRequest):
 def rag_ask(req: RAGAskRequest):
     """RAG 主流程：检索 -> rerank -> 压缩 -> 合成答案。"""
     span = trace_store.start_span("rag_ask", inputs={"question": req.question})
+    _, _, local_retriever, local_reranker, local_compressor = get_rag_components()
     # 检索阶段
-    retrieved = retriever.get_relevant_documents(req.question)
+    retrieved = local_retriever.get_relevant_documents(req.question)
     # rerank + 压缩上下文
-    reranked = reranker.rerank(req.question, retrieved, top_k=req.top_k)
-    compressed_docs = compressor.compress(reranked)
+    reranked = local_reranker.rerank(req.question, retrieved, top_k=req.top_k)
+    compressed_docs = local_compressor.compress(reranked)
     # 合成答案
-    answer = rag_synthesizer.synthesize(req.question, compressed_docs, mode=req.mode)
+    answer = get_rag_synthesizer().synthesize(
+        req.question, compressed_docs, mode=req.mode
+    )
     # 简单评估
     metrics = evaluate_retrieval(retrieved, req.expected_ids or [])
     trace_store.finish_span(span, outputs={"answer": answer[:80]})
@@ -350,7 +433,7 @@ def agent_ask(req: AgentRequest):
     session_id = req.session_id or "default"
     memory = agent_memories.setdefault(session_id, ConversationMemory())
     span = trace_store.start_span("agent_ask", inputs={"task": req.task})
-    result = agent.run(req.task, memory)
+    result = get_agent().run(req.task, memory)
     trace_store.finish_span(span, outputs={"result": result[:80]})
     return {
         "result": result,
@@ -374,8 +457,8 @@ def lcel_demo():
             {"role": "user", "content": "{question}"},
         ]
     )
-    chain = RunnableSequence([template, LLMRunnable(llm_service.llm)])
-    chat_chain = RunnableSequence([chat_prompt, LLMRunnable(llm_service.llm)])
+    chain = RunnableSequence([template, LLMRunnable(get_llm_service().llm)])
+    chat_chain = RunnableSequence([chat_prompt, LLMRunnable(get_llm_service().llm)])
     return {
         "prompt_chain": chain.invoke({"question": "什么是 RAG?"}),
         "chat_chain": chat_chain.invoke({"question": "什么是 Agent?"}),

@@ -609,6 +609,11 @@
           <label for="prompt">自定义风格提示词</label>
           <input id="prompt" type="text" placeholder="例如：请用专业但简洁的语气回答" />
         </div>
+        <div>
+          <label for="attachment">上传附件（图片/音频/文件）</label>
+          <input id="attachment" type="file" />
+          <p class="form-hint">将自动启用多模态摘要，合并到回答上下文。</p>
+        </div>
       </div>
 
       <div class="row">
@@ -969,6 +974,8 @@
       const ragToggle = document.getElementById("rag");
       const toolsToggle = document.getElementById("enableTools");
       const routerToggle = document.getElementById("enableRouter");
+      const attachmentInput = document.getElementById("attachment");
+      const attachment = attachmentInput?.files?.[0] || null;
       let stream = streamToggle.checked;
       const includeMeta = metaToggle.checked;
       if (includeMeta) {
@@ -1008,11 +1015,29 @@
       metaPanel.textContent = "元信息会显示在这里。";
 
       try {
-        const resp = await fetch(`${apiBase}/ask`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
+        let resp;
+        if (attachment) {
+          const form = new FormData();
+          Object.entries(payload).forEach(([key, value]) => {
+            if (value === null || value === undefined) return;
+            if (Array.isArray(value)) {
+              form.append(key, value.join(","));
+            } else {
+              form.append(key, String(value));
+            }
+          });
+          form.append("file", attachment);
+          resp = await fetch(`${apiBase}/ask/multimodal`, {
+            method: "POST",
+            body: form
+          });
+        } else {
+          resp = await fetch(`${apiBase}/ask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+        }
 
         if (!resp.ok) {
           const t = await resp.text();
@@ -1039,8 +1064,11 @@
             const ragInfo = data.meta.rag_docs ? ` | RAG 文档：${data.meta.rag_docs.join("、")}` : "";
             const providerInfo = data.meta.provider ? ` | Provider：${data.meta.provider}` : "";
             const routeInfo = data.meta.route_reason ? ` | 路由：${data.meta.route_reason}` : "";
+            const attachmentInfo = data.meta.attachment
+              ? ` | 附件：${data.meta.attachment.filename} (${data.meta.attachment.size_bytes}B)`
+              : "";
             metaPanel.textContent =
-              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}${providerInfo}${routeInfo}`;
+              `来源：${data.meta.source} | 缓存命中：${data.meta.cache_hit} | 延迟：${data.meta.latency_ms}ms${ragInfo}${providerInfo}${routeInfo}${attachmentInfo}`;
           }
         }
 

@@ -8,14 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from agent_runtime import (
+    Chain,
+    GeminiProvider,
+    LLMManager,
+    LLMRequestConfig,
+    MemoryStore,
+    PlaceholderProvider,
+    PromptMessage,
+    PromptTemplate,
+    Tool,
+    ToolRegistry,
+    ToolResult,
+)
 from knowledge_base import blueprint_payload, retrieve_documents
-from my_custom_llm import MyCustomGeminiLLM
 from tools import add, get_date, get_time, make_uuid, safe_eval_expression, text_stats
 
 app = FastAPI()
-# 会话历史字典：key 是 session_id，value 是 [(question, answer), ...]
-# 用于在多轮对话中保留上下文，便于拼接成连续对话的 prompt
-sessions: "OrderedDict[str, List[Tuple[str, str]]]" = OrderedDict()
 MAX_HISTORY_TURNS = 10
 MAX_SESSIONS = 200
 
@@ -51,6 +60,57 @@ ADVISOR_SYSTEM_PROMPT = (
     "给出清晰的小标题和要点列表，语气专业、直接。"
 )
 
+memory_store = MemoryStore(max_turns=MAX_HISTORY_TURNS, max_sessions=MAX_SESSIONS)
+tool_registry = ToolRegistry(
+    tools=[
+        Tool(
+            name="get_time",
+            description="获取当前时间",
+            handler=lambda _: ToolResult(get_time(), {"tool": "time"}),
+            keywords=["现在几点", "时间", "time"],
+        ),
+        Tool(
+            name="get_date",
+            description="获取今天日期",
+            handler=lambda _: ToolResult(get_date(), {"tool": "date"}),
+            keywords=["今天日期", "日期", "date"],
+        ),
+        Tool(
+            name="uuid",
+            description="生成 UUID4",
+            handler=lambda _: ToolResult(make_uuid(), {"tool": "uuid"}),
+            keywords=["uuid", "id"],
+        ),
+        Tool(
+            name="calc",
+            description="安全计算数学表达式",
+            handler=lambda text: ToolResult(str(safe_eval_expression(text)), {"tool": "calc"}),
+            keywords=["计算", "算一下", "calc"],
+        ),
+        Tool(
+            name="text_stats",
+            description="统计文本长度与单词数",
+            handler=lambda text: ToolResult(
+                (
+                    f"字符数：{text_stats(text)['chars']} | "
+                    f"去空格字符数：{text_stats(text)['chars_no_space']} | "
+                    f"单词数：{text_stats(text)['words']}"
+                ),
+                {"tool": "len"},
+            ),
+            keywords=["字数", "文本统计", "len"],
+        ),
+    ]
+)
+llm_manager = LLMManager(
+    providers=[
+        GeminiProvider(),
+        PlaceholderProvider("openai", "请配置 OPENAI_API_KEY 并启用对应 SDK。"),
+        PlaceholderProvider("anthropic", "请配置 ANTHROPIC_API_KEY 并启用对应 SDK。"),
+        PlaceholderProvider("ollama", "请启动本地 Ollama 服务并配置地址。"),
+    ]
+)
+
 
 class QuestionRequest(BaseModel):
     # 用户输入的问题文本
@@ -67,6 +127,19 @@ class QuestionRequest(BaseModel):
     include_meta: bool = False
     # 运行模式：默认空；"advisor" 表示架构建议；"rag" 表示检索增强
     mode: Optional[str] = None
+    # LLM Provider：auto/gemini/openai/anthropic/ollama
+    provider: Optional[str] = None
+    # LLM 参数
+    temperature: Optional[float] = None
+    max_output_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    # 工具调用与路由开关
+    enable_tools: bool = True
+    enable_router: bool = True
+    # 回退与重试
+    fallback_providers: Optional[List[str]] = None
+    retries: int = 1
 
 
 class SessionRequest(BaseModel):
@@ -108,6 +181,26 @@ def features() -> Dict[str, Any]:
             {"cmd": "/len 文本", "desc": "查看文本统计"},
             {"cmd": "/help", "desc": "查看可用命令"},
         ],
+        "providers": [
+            {"id": "auto", "desc": "自动路由（建议默认）"},
+            {"id": "gemini", "desc": "Google Gemini（已接入）"},
+            {"id": "openai", "desc": "OpenAI（占位，需配置）"},
+            {"id": "anthropic", "desc": "Anthropic（占位，需配置）"},
+            {"id": "ollama", "desc": "本地 Ollama（占位，需配置）"},
+        ],
+        "prompt": {
+            "supports": ["system", "messages", "few-shot", "variables", "versioning"],
+            "template": "PromptTemplate + Messages",
+        },
+        "chains": {
+            "steps": ["preprocess", "tool", "retrieve", "generate", "postprocess"],
+            "desc": "用户输入 → 预处理 → 检索 → 生成 → 后处理",
+        },
+        "tools": tool_registry.summary(),
+        "memory": {
+            "window_turns": MAX_HISTORY_TURNS,
+            "long_term": "vector-store (规划中)",
+        },
         "limits": {
             "max_history_turns": MAX_HISTORY_TURNS,
             "max_sessions": MAX_SESSIONS,
@@ -125,7 +218,7 @@ def stats() -> Dict[str, Any]:
     return {
         "requests": request_stats,
         "cache": {"size": len(answer_cache), **cache_stats},
-        "sessions": {"active": len(sessions), "max": MAX_SESSIONS},
+        "sessions": {"active": memory_store.active_count(), "max": MAX_SESSIONS},
     }
 
 
@@ -136,22 +229,9 @@ def blueprint() -> Dict[str, Any]:
 
 @app.post("/session/clear")
 def clear_session(req: SessionRequest) -> Dict[str, Any]:
-    if sessions.pop(req.session_id, None) is not None:
+    if memory_store.clear(req.session_id):
         return {"cleared": True, "session_id": req.session_id}
     return {"cleared": False, "session_id": req.session_id}
-
-
-def _get_session_history(session_key: Optional[str]) -> List[Tuple[str, str]]:
-    if not session_key:
-        return []
-    history = sessions.get(session_key)
-    if history is None:
-        history = []
-        sessions[session_key] = history
-    sessions.move_to_end(session_key)
-    if len(sessions) > MAX_SESSIONS:
-        sessions.popitem(last=False)
-    return history
 
 
 def _cache_get(key: Tuple[str, str]) -> Optional[str]:
@@ -206,6 +286,21 @@ def _handle_command(question: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     return "未知命令，试试 /help", {"command": f"/{cmd}", "error": True}
 
 
+def _auto_tool(question: str) -> Optional[ToolResult]:
+    tool = tool_registry.match(question)
+    if not tool:
+        return None
+    payload = question
+    if tool.name in {"calc", "text_stats"}:
+        payload = question.replace("计算", "").replace("算一下", "").replace("字数", "").strip()
+    if tool.name == "calc" and not payload:
+        payload = question
+    try:
+        return tool.handler(payload)
+    except ValueError as exc:
+        return ToolResult(f"工具调用失败：{exc}", {"tool": tool.name, "error": True})
+
+
 @app.post("/ask")
 def ask_question(req: QuestionRequest):
     # 取出用户输入的问题文本，便于后续处理
@@ -236,12 +331,7 @@ def ask_question(req: QuestionRequest):
         return JSONResponse(payload)
 
     def update_history(session_key: Optional[str], answer: str):
-        if not session_key:
-            return
-        history = _get_session_history(session_key)
-        history.append((question, answer))
-        if len(history) > MAX_HISTORY_TURNS:
-            sessions[session_key] = history[-MAX_HISTORY_TURNS:]
+        memory_store.append(session_key, question, answer)
 
     def build_meta(source: str, cache_hit: bool, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         meta = {
@@ -276,6 +366,12 @@ def ask_question(req: QuestionRequest):
         request_stats["rule"] += 1
         return respond_text(str(add(left, right)), meta=build_meta("rule", False, {"tool": "add"}))
 
+    if req.enable_tools:
+        tool_result = _auto_tool(question)
+        if tool_result:
+            request_stats["rule"] += 1
+            return respond_text(tool_result.output, meta=build_meta("tool", False, tool_result.meta))
+
     # 如果前端传了 system_prompt，就用它；
     # 否则使用默认的可爱语气 prompt。
     system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
@@ -294,27 +390,31 @@ def ask_question(req: QuestionRequest):
                 "rag_docs": [doc["title"] for doc in rag_docs],
                 "rag_count": len(rag_docs),
             }
-    # 始终用自定义 LLM 包装器注入 system prompt，让回答保持可爱风格
-    active_llm = MyCustomGeminiLLM(prefix=system_prompt)
     # 规范化 session_id（去掉首尾空白），避免同一会话被当成多个 key
     session_id = req.session_id.strip() if req.session_id else None
     # 获取该会话的历史；若不存在则初始化为空列表
     # 未提供 session_id 时视为单轮对话，不读取/写入历史
-    history = _get_session_history(session_id) if session_id else []
-    # 将历史记录拼成连续对话的 prompt，格式如：
-    # 用户：... \n 助手：... \n 用户：... \n 助手：...
-    history_prompt = "".join(
-        f"用户：{user_question}\n助手：{response}\n" for user_question, response in history
+    history = memory_store.get(session_id) if session_id else []
+    history_prompt = "".join(f"用户：{user}\n助手：{reply}\n" for user, reply in history)
+
+    messages = []
+    if history_prompt:
+        messages.append(PromptMessage(role="用户", content=history_prompt))
+    messages.append(PromptMessage(role="用户", content="{question}"))
+    prompt_template = PromptTemplate(
+        system=system_prompt,
+        messages=messages,
+        variables={"question": req.question},
     )
-    # 拼接本次问题，提示模型继续回复助手内容
+
     if rag_context:
         prompt = (
-            f"{history_prompt}用户：{req.question}\n\n"
+            f"{prompt_template.render()}\n\n"
             f"请参考以下资料作答（不要逐字复述，保持结构化输出）：\n{rag_context}\n\n"
             "助手："
         )
     else:
-        prompt = f"{history_prompt}用户：{req.question}\n助手："
+        prompt = f"{prompt_template.render()}\n助手："
     # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
     cache_key = (system_prompt, question)
     if not session_id:
@@ -322,20 +422,53 @@ def ask_question(req: QuestionRequest):
         if cached_answer is not None:
             return respond_text(cached_answer, meta=build_meta("cache", True, rag_meta))
 
+    config = LLMRequestConfig(
+        temperature=req.temperature if req.temperature is not None else 0.7,
+        max_output_tokens=req.max_output_tokens or 2048,
+        top_p=req.top_p if req.top_p is not None else 1.0,
+        top_k=req.top_k if req.top_k is not None else 1,
+    )
+    fallback_providers = req.fallback_providers or []
+
+    chain = Chain(
+        steps=[
+            lambda state: {**state, "prompt": prompt},
+        ]
+    )
+    chain_state = chain.run({"question": question})
+    final_prompt = chain_state["prompt"]
+
     if not stream:
-        answer = active_llm.generate(prompt, max_output_tokens=2048)
+        answer, meta = llm_manager.generate(
+            final_prompt,
+            config=config,
+            question=question,
+            provider=req.provider,
+            fallback=fallback_providers,
+            retries=req.retries,
+            enable_router=req.enable_router,
+        )
         request_stats["llm"] += 1
         if not session_id:
             _cache_set(cache_key, answer)
         update_history(session_id, answer)
         return respond_text(
             answer,
-            meta=build_meta("llm", False, {"model": active_llm.model_name, **rag_meta}),
+            meta=build_meta("llm", False, {**meta, **rag_meta}),
         )
 
     def answer_stream():
         answer_parts = []
-        for chunk in active_llm.generate_stream(prompt, max_output_tokens=2048):
+        stream_iter, meta = llm_manager.generate_stream(
+            final_prompt,
+            config=config,
+            question=question,
+            provider=req.provider,
+            fallback=fallback_providers,
+            retries=req.retries,
+            enable_router=req.enable_router,
+        )
+        for chunk in stream_iter:
             answer_parts.append(chunk)
             yield chunk
         final_answer = "".join(answer_parts)
@@ -344,4 +477,6 @@ def ask_question(req: QuestionRequest):
             _cache_set(cache_key, final_answer)
         update_history(session_id, final_answer)
 
-    return StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
+    response = StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
+    response.headers["X-Provider"] = req.provider or "auto"
+    return response

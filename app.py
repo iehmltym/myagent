@@ -54,16 +54,32 @@ _llm_service: Optional[LLMService] = None
 # 默认的可爱语气 system prompt（当用户未提供时使用）
 DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
 
-# ===== RAG 的全局组件（全部延迟初始化）=====
-_embedding_model: Optional[SimpleHashEmbedding] = None
-_vector_store: Optional[InMemoryVectorStore] = None
-_text_splitter: Optional[SimpleTextSplitter] = None
-_retriever: Optional[VectorStoreRetriever] = None
-_reranker: Optional[OverlapReranker] = None
-_compressor: Optional[ContextualCompressor] = None
+# ===== RAG 的全局组件 =====
+embedding_model = SimpleHashEmbedding(dims=128)
+vector_store = InMemoryVectorStore(embedding_model=embedding_model)
+text_splitter = SimpleTextSplitter(chunk_size=400, chunk_overlap=80)
+retriever = VectorStoreRetriever(store=vector_store, top_k=4, score_threshold=0.1, use_mmr=True)
+reranker = OverlapReranker()
+compressor = ContextualCompressor(max_chars=800)
 # RAG 答案合成器也延迟创建，避免启动时就初始化模型
 _rag_synthesizer: Optional[AnswerSynthesizer] = None
-_default_docs_loaded = False
+
+# 默认示例知识库：让 RAG 即开即用（可通过 /rag/ingest 覆盖/追加）
+default_docs = [
+    Document(
+        content="RAG 是检索增强生成，通过向量检索获取外部资料，再让模型综合回答。",
+        metadata={"id": "rag-001", "source": "builtin"},
+    ),
+    Document(
+        content="Agent 适合开放式任务编排，可结合工具调用与记忆管理完成复杂任务。",
+        metadata={"id": "agent-001", "source": "builtin"},
+    ),
+    Document(
+        content="LCEL/Runnable 思维强调可组合性：prompt -> model -> parser -> tool。",
+        metadata={"id": "lcel-001", "source": "builtin"},
+    ),
+]
+vector_store.add_documents(text_splitter.split_documents(default_docs))
 
 # ===== 观测能力 =====
 trace_store = TraceStore()

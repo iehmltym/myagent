@@ -66,6 +66,12 @@ class ToolRegistry:
                 return tool
         return None
 
+    def get(self, name: str) -> Optional[Tool]:
+        for tool in self._tools:
+            if tool.name == name:
+                return tool
+        return None
+
     def summary(self) -> List[Dict[str, str]]:
         return [{"name": tool.name, "desc": tool.description} for tool in self._tools]
 
@@ -106,6 +112,21 @@ class MemoryStore:
 
     def active_count(self) -> int:
         return len(self.sessions)
+
+    def list_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        if limit <= 0:
+            return []
+        session_ids = list(reversed(self._order))[:limit]
+        return [
+            {
+                "session_id": session_id,
+                "turns": len(self.sessions.get(session_id, [])),
+            }
+            for session_id in session_ids
+        ]
+
+    def export(self, session_id: str) -> List[Tuple[str, str]]:
+        return list(self.sessions.get(session_id, []))
 
     def _touch(self, session_id: str) -> None:
         if session_id in self._order:

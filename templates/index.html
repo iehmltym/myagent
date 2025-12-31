@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>MyAgent 前端</title>
+</head>
+<body>
+  <h2>MyAgent 前端（GitHub Pages）</h2>
+
+  <textarea id="q" rows="6" cols="70" placeholder="输入问题，例如：用中文解释 REST API"></textarea>
+  <br><br>
+  <button onclick="ask()">提问</button>
+
+  <h3>回答：</h3>
+  <pre id="ans"></pre>
+
+  <script>
+    const API_BASE = "https://myagent-mhrq.onrender.com";
+
+    async function ask() {
+      const question = document.getElementById("q").value.trim();
+      const ansEl = document.getElementById("ans");
+      ansEl.textContent = "请求中...";
+
+      try {
+        const resp = await fetch(`${API_BASE}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        });
+
+        // 如果后端报错，先把状态码显示出来
+        if (!resp.ok) {
+          const t = await resp.text();
+          throw new Error(`HTTP ${resp.status}: ${t}`);
+        }
+
+        ansEl.textContent = "";
+        if (!resp.body) {
+          const text = await resp.text();
+          ansEl.textContent = text || "(无返回内容)";
+          return;
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          ansEl.textContent += decoder.decode(value, { stream: true });
+        }
+      } catch (e) {
+        ansEl.textContent = "失败：" + e.message;
+      }
+    }
+  </script>
+</body>
+</html>

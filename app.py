@@ -6,7 +6,7 @@ import time
 from typing import Any, Deque, Dict, List, Optional, Tuple
 import uuid
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -54,7 +54,7 @@ STARTED_AT_WALL = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 OBS_LOG_LIMIT = 200
 MAX_UPLOAD_BYTES = 6 * 1024 * 1024
 
-answer_cache: "OrderedDict[Tuple[str, str], str]" = OrderedDict()
+answer_cache: "OrderedDict[Tuple[str, str, str], str]" = OrderedDict()
 MAX_CACHE_ITEMS = 256
 cache_stats = {"hits": 0, "misses": 0}
 request_stats = {"total": 0, "llm": 0, "rule": 0, "cache": 0}
@@ -262,6 +262,71 @@ class RAGPreviewRequest(BaseModel):
     top_k: int = 4
 
 
+def _build_prompt(
+    *,
+    question: str,
+    system_prompt: str,
+    mode: str,
+    session_id: Optional[str],
+    top_k: int,
+    file_context: Optional[str] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    rag_context = ""
+    rag_meta: Dict[str, Any] = {}
+    if mode in {"advisor", "rag"}:
+        rag_docs = retrieve_documents(question, top_k=top_k)
+        if rag_docs:
+            rag_context = "\n\n".join(
+                f"[{index + 1}] {doc['title']}\n{doc['content']}" for index, doc in enumerate(rag_docs)
+            )
+            rag_meta = {
+                "rag_docs": [doc["title"] for doc in rag_docs],
+                "rag_count": len(rag_docs),
+            }
+
+    history = memory_store.get(session_id) if session_id else []
+    history_prompt = "".join(f"用户：{user}\n助手：{reply}\n" for user, reply in history)
+
+    messages = []
+    if history_prompt:
+        messages.append(PromptMessage(role="用户", content=history_prompt))
+    messages.append(PromptMessage(role="用户", content="{question}"))
+    prompt_template = PromptTemplate(
+        system=system_prompt,
+        messages=messages,
+        variables={"question": question},
+    )
+
+    context_blocks = []
+    if file_context:
+        context_blocks.append(
+            "以下是用户上传内容的结构化摘要，请结合问题回答（无需逐字复述）：\n" + file_context
+        )
+    if rag_context:
+        context_blocks.append(
+            "请参考以下资料作答（不要逐字复述，保持结构化输出）：\n" + rag_context
+        )
+    if context_blocks:
+        prompt = f"{prompt_template.render()}\n\n" + "\n\n".join(context_blocks) + "\n\n助手："
+    else:
+        prompt = f"{prompt_template.render()}\n助手："
+    return prompt, rag_meta
+
+
+def _describe_upload(file: UploadFile, data: bytes) -> Tuple[str, Dict[str, Any]]:
+    content_type = file.content_type or "application/octet-stream"
+    if content_type.startswith("image/"):
+        info = describe_image(data, file.filename or "image", content_type)
+        if info.get("format") == "unknown":
+            raise HTTPException(status_code=400, detail="未识别为图片格式")
+        return "image", info
+    if content_type.startswith("audio/"):
+        info = describe_audio(data, file.filename or "audio", content_type)
+        return "audio", info
+    info = describe_file(data, file.filename or "upload", content_type)
+    return "file", info
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -317,6 +382,7 @@ def features() -> Dict[str, Any]:
             "file": {"endpoint": "/files/describe", "desc": "文件摘要（大小、hash、预览）"},
             "image": {"endpoint": "/images/describe", "desc": "图片信息（格式、尺寸、hash）"},
             "audio": {"endpoint": "/audio/describe", "desc": "音频信息（wav 时长）"},
+            "chat": {"endpoint": "/ask/multimodal", "desc": "带附件的多模态问答"},
         },
         "memory": {
             "window_turns": MAX_HISTORY_TURNS,
@@ -474,6 +540,57 @@ async def describe_uploaded_audio(file: UploadFile = File(...)) -> Dict[str, Any
     return {"ok": True, "audio": info}
 
 
+@app.post("/ask/multimodal")
+async def ask_with_attachment(
+    question: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    system_prompt: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    stream: bool = Form(True),
+    include_meta: bool = Form(False),
+    mode: Optional[str] = Form(None),
+    provider: Optional[str] = Form(None),
+    temperature: Optional[float] = Form(None),
+    max_output_tokens: Optional[int] = Form(None),
+    top_p: Optional[float] = Form(None),
+    top_k: Optional[int] = Form(None),
+    enable_tools: bool = Form(True),
+    enable_router: bool = Form(True),
+    fallback_providers: Optional[str] = Form(None),
+    retries: int = Form(1),
+) -> Any:
+    req = QuestionRequest(
+        question=question,
+        system_prompt=system_prompt,
+        session_id=session_id,
+        stream=stream,
+        include_meta=include_meta,
+        mode=mode,
+        provider=provider,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        top_p=top_p,
+        top_k=top_k,
+        enable_tools=enable_tools,
+        enable_router=enable_router,
+        fallback_providers=[item.strip() for item in (fallback_providers or "").split(",") if item.strip()],
+        retries=retries,
+    )
+
+    attachment_meta: Dict[str, Any] = {}
+    file_context = None
+    if file:
+        data = await _read_upload(file)
+        kind, info = _describe_upload(file, data)
+        attachment_meta = {"attachment_kind": kind, "attachment": info}
+        file_context = json.dumps(info, ensure_ascii=False, indent=2)
+
+    response = _handle_question(req, file_context=file_context, attachment_meta=attachment_meta)
+    if file_context:
+        response.headers["X-Attachment-Kind"] = attachment_meta.get("attachment_kind", "")
+    return response
+
+
 @app.post("/rag/preview")
 def rag_preview(req: RAGPreviewRequest) -> Dict[str, Any]:
     docs = retrieve_documents(req.query, top_k=req.top_k)
@@ -488,42 +605,17 @@ def rag_preview(req: RAGPreviewRequest) -> Dict[str, Any]:
 def prompt_preview(req: PromptPreviewRequest) -> Dict[str, Any]:
     system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
     mode = (req.mode or "").strip().lower()
-    rag_context = ""
-    rag_meta: Dict[str, Any] = {}
-    if mode in {"advisor", "rag"}:
-        if not req.system_prompt:
-            system_prompt = ADVISOR_SYSTEM_PROMPT
-        rag_docs = retrieve_documents(req.question, top_k=req.top_k)
-        if rag_docs:
-            rag_context = "\n\n".join(
-                f"[{index + 1}] {doc['title']}\n{doc['content']}" for index, doc in enumerate(rag_docs)
-            )
-            rag_meta = {
-                "rag_docs": [doc["title"] for doc in rag_docs],
-                "rag_count": len(rag_docs),
-            }
+    if mode in {"advisor", "rag"} and not req.system_prompt:
+        system_prompt = ADVISOR_SYSTEM_PROMPT
 
     session_id = req.session_id.strip() if req.session_id else None
-    history = memory_store.get(session_id) if session_id else []
-    history_prompt = "".join(f"用户：{user}\n助手：{reply}\n" for user, reply in history)
-
-    messages = []
-    if history_prompt:
-        messages.append(PromptMessage(role="用户", content=history_prompt))
-    messages.append(PromptMessage(role="用户", content="{question}"))
-    prompt_template = PromptTemplate(
-        system=system_prompt,
-        messages=messages,
-        variables={"question": req.question},
+    prompt, rag_meta = _build_prompt(
+        question=req.question,
+        system_prompt=system_prompt,
+        mode=mode,
+        session_id=session_id,
+        top_k=req.top_k,
     )
-    if rag_context:
-        prompt = (
-            f"{prompt_template.render()}\n\n"
-            f"请参考以下资料作答（不要逐字复述，保持结构化输出）：\n{rag_context}\n\n"
-            "助手："
-        )
-    else:
-        prompt = f"{prompt_template.render()}\n助手："
     provider, route_reason = llm_manager.route(req.question, req.provider, req.enable_router)
     return {
         "prompt": prompt,
@@ -533,7 +625,7 @@ def prompt_preview(req: PromptPreviewRequest) -> Dict[str, Any]:
         **rag_meta,
     }
 
-def _cache_get(key: Tuple[str, str]) -> Optional[str]:
+def _cache_get(key: Tuple[str, str, str]) -> Optional[str]:
     if key in answer_cache:
         answer_cache.move_to_end(key)
         cache_stats["hits"] += 1
@@ -543,7 +635,7 @@ def _cache_get(key: Tuple[str, str]) -> Optional[str]:
     return None
 
 
-def _cache_set(key: Tuple[str, str], answer: str) -> None:
+def _cache_set(key: Tuple[str, str, str], answer: str) -> None:
     answer_cache[key] = answer
     answer_cache.move_to_end(key)
     if len(answer_cache) > MAX_CACHE_ITEMS:
@@ -600,9 +692,12 @@ def _auto_tool(question: str) -> Optional[ToolResult]:
         return ToolResult(f"工具调用失败：{exc}", {"tool": tool.name, "error": True})
 
 
-@app.post("/ask")
-def ask_question(req: QuestionRequest):
-    # 取出用户输入的问题文本，便于后续处理
+def _handle_question(
+    req: QuestionRequest,
+    *,
+    file_context: Optional[str] = None,
+    attachment_meta: Optional[Dict[str, Any]] = None,
+):
     question = req.question.strip()
     request_id = str(uuid.uuid4())
     stream = req.stream
@@ -642,6 +737,8 @@ def ask_question(req: QuestionRequest):
         }
         if forced_stream_off:
             meta["stream_forced_off"] = True
+        if attachment_meta:
+            meta.update(attachment_meta)
         if extra:
             meta.update(extra)
         return meta
@@ -667,21 +764,16 @@ def ask_question(req: QuestionRequest):
         meta = build_meta("command", False, extra)
         log_event(meta)
         return respond_text(answer, meta=meta)
-    # 规则 1：如果问题中出现“现在几点”或“今天日期”，直接返回当前时间
     if "现在几点" in question or "今天日期" in question:
         request_stats["rule"] += 1
         meta = build_meta("rule", False, {"tool": "time"})
         log_event(meta)
         return respond_text(get_time(), meta=meta)
 
-    # 规则 2：如果问题符合 “a+b=?” 形式，解析出 a、b 并计算
-    # 说明：下面这个正则允许空格和小数，比如 " 1 + 2 = ? "
     math_match = MATH_PATTERN.fullmatch(question)
     if math_match:
-        # 正则分组 1 和 2 分别是 a、b 的文本形式
         left = float(math_match.group(1))
         right = float(math_match.group(2))
-        # 计算完成后直接返回，避免走 LLM
         request_stats["rule"] += 1
         meta = build_meta("rule", False, {"tool": "add"})
         log_event(meta)
@@ -695,51 +787,20 @@ def ask_question(req: QuestionRequest):
             log_event(meta)
             return respond_text(tool_result.output, meta=meta)
 
-    # 如果前端传了 system_prompt，就用它；
-    # 否则使用默认的可爱语气 prompt。
     system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
     mode = (req.mode or "").strip().lower()
-    rag_context = ""
-    rag_meta: Dict[str, Any] = {}
-    if mode in {"advisor", "rag"}:
-        if not req.system_prompt:
-            system_prompt = ADVISOR_SYSTEM_PROMPT
-        rag_docs = retrieve_documents(question, top_k=4)
-        if rag_docs:
-            rag_context = "\n\n".join(
-                f"[{index + 1}] {doc['title']}\n{doc['content']}" for index, doc in enumerate(rag_docs)
-            )
-            rag_meta = {
-                "rag_docs": [doc["title"] for doc in rag_docs],
-                "rag_count": len(rag_docs),
-            }
-    # 规范化 session_id（去掉首尾空白），避免同一会话被当成多个 key
+    if mode in {"advisor", "rag"} and not req.system_prompt:
+        system_prompt = ADVISOR_SYSTEM_PROMPT
     session_id = req.session_id.strip() if req.session_id else None
-    # 获取该会话的历史；若不存在则初始化为空列表
-    # 未提供 session_id 时视为单轮对话，不读取/写入历史
-    history = memory_store.get(session_id) if session_id else []
-    history_prompt = "".join(f"用户：{user}\n助手：{reply}\n" for user, reply in history)
-
-    messages = []
-    if history_prompt:
-        messages.append(PromptMessage(role="用户", content=history_prompt))
-    messages.append(PromptMessage(role="用户", content="{question}"))
-    prompt_template = PromptTemplate(
-        system=system_prompt,
-        messages=messages,
-        variables={"question": req.question},
+    prompt, rag_meta = _build_prompt(
+        question=question,
+        system_prompt=system_prompt,
+        mode=mode,
+        session_id=session_id,
+        top_k=4,
+        file_context=file_context,
     )
-
-    if rag_context:
-        prompt = (
-            f"{prompt_template.render()}\n\n"
-            f"请参考以下资料作答（不要逐字复述，保持结构化输出）：\n{rag_context}\n\n"
-            "助手："
-        )
-    else:
-        prompt = f"{prompt_template.render()}\n助手："
-    # 调用模型生成答案，max_output_tokens 适当提高以避免回答被截断
-    cache_key = (system_prompt, question)
+    cache_key = (system_prompt, question, file_context or "")
     if not session_id:
         cached_answer = _cache_get(cache_key)
         if cached_answer is not None:
@@ -808,3 +869,8 @@ def ask_question(req: QuestionRequest):
     response.headers["X-Provider"] = req.provider or "auto"
     response.headers["X-Request-ID"] = request_id
     return response
+
+
+@app.post("/ask")
+def ask_question(req: QuestionRequest):
+    return _handle_question(req)

@@ -69,15 +69,25 @@ class MyGeminiLLM:
         for m in self.client.models.list():
             # 每个模型对象通常有 supported_generation_methods 属性
             # 可能是 ['generateContent', ...]
-            methods = getattr(m, "supported_generation_methods", []) or []
+            methods = getattr(m, "supported_generation_methods", None)
+
+            # 有些账号/SDK 版本不会返回 supported_generation_methods
+            # 这时退化为“只要是 gemini 模型就先纳入候选”
+            if not methods:
+                if "gemini" in m.name:
+                    candidates.append(m.name)
+                continue
 
             # 只保留支持 generateContent 的模型（因为我们要用 generate_content）
-            if "generateContent" in methods:
+            if "generateContent" in methods or "generate_content" in methods:
                 candidates.append(m.name)
 
         # 如果一个都没有，说明账号权限/计费/地区限制等有问题
         if not candidates:
-            raise RuntimeError("当前账号没有任何支持 generateContent 的模型。")
+            raise RuntimeError(
+                "当前账号未返回可用的 Gemini 生成模型。"
+                "请检查 API Key 权限或运行 list_models.py 查看账号可用模型。"
+            )
 
         # 优先选择更常用/性价比高的模型：
         # 1) gemini-1.5-flash（快、便宜）

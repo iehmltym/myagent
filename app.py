@@ -1,7 +1,9 @@
-from collections import OrderedDict
+from collections import OrderedDict, deque
+from datetime import datetime
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
+import uuid
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,11 +29,15 @@ from tools import add, get_date, get_time, make_uuid, safe_eval_expression, text
 app = FastAPI()
 MAX_HISTORY_TURNS = 10
 MAX_SESSIONS = 200
+STARTED_AT = time.monotonic()
+STARTED_AT_WALL = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+OBS_LOG_LIMIT = 200
 
 answer_cache: "OrderedDict[Tuple[str, str], str]" = OrderedDict()
 MAX_CACHE_ITEMS = 256
 cache_stats = {"hits": 0, "misses": 0}
 request_stats = {"total": 0, "llm": 0, "rule": 0, "cache": 0}
+observability_log: Deque[Dict[str, Any]] = deque(maxlen=OBS_LOG_LIMIT)
 
 COMMAND_PATTERN = re.compile(r"^/([a-zA-Z]+)\s*(.*)$")
 MATH_PATTERN = re.compile(r"\s*(\d+(?:\.\d+)?)\s*\+\s*(\d+(?:\.\d+)?)\s*=\s*\?\s*")
@@ -49,7 +55,7 @@ app.add_middleware(
 )
 
 # 默认的可爱语气 system prompt（当用户未提供时使用）
-DEFAULT_CUTE_SYSTEM_PROMPT = "请用可爱的语气回答，简洁、温柔，像小可爱一样～"
+DEFAULT_CUTE_SYSTEM_PROMPT = "你是林志玲今日值班AI小助手，请用可爱的语气回答，简洁、温柔，像小可爱一样～"
 ADVISOR_SYSTEM_PROMPT = (
     "你是资深 AI 架构顾问，擅长 LangChain/Agent/RAG 项目落地。"
     "请用中文回答，结构必须包含："
@@ -146,6 +152,26 @@ class SessionRequest(BaseModel):
     session_id: str
 
 
+class ToolRunRequest(BaseModel):
+    name: str
+    payload: Optional[str] = ""
+
+
+class PromptPreviewRequest(BaseModel):
+    question: str
+    system_prompt: Optional[str] = None
+    mode: Optional[str] = None
+    session_id: Optional[str] = None
+    top_k: int = 4
+    provider: Optional[str] = None
+    enable_router: bool = True
+
+
+class RAGPreviewRequest(BaseModel):
+    query: str
+    top_k: int = 4
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -199,7 +225,7 @@ def features() -> Dict[str, Any]:
         "tools": tool_registry.summary(),
         "memory": {
             "window_turns": MAX_HISTORY_TURNS,
-            "long_term": "vector-store (规划中)",
+            "long_term": "vector-store (规划中，512MB 建议外部托管)",
         },
         "limits": {
             "max_history_turns": MAX_HISTORY_TURNS,
@@ -210,6 +236,20 @@ def features() -> Dict[str, Any]:
             {"id": "advisor", "desc": "架构建议模式：按固定结构输出升级建议"},
             {"id": "rag", "desc": "检索增强模式：结合内置资料输出"},
         ],
+        "admin": {
+            "endpoints": [
+                {"path": "/system", "desc": "服务运行状态与限制信息"},
+                {"path": "/cache/clear", "desc": "清空回答缓存"},
+                {"path": "/session/list", "desc": "查看活跃会话列表"},
+                {"path": "/session/export", "desc": "导出会话历史"},
+                {"path": "/observability/logs", "desc": "查看最近请求日志"},
+                {"path": "/observability/clear", "desc": "清空观测日志"},
+                {"path": "/router/explain", "desc": "Router 决策解释"},
+                {"path": "/tools/run", "desc": "直接调用指定工具"},
+                {"path": "/rag/preview", "desc": "预览 RAG 检索结果"},
+                {"path": "/prompt/preview", "desc": "预览最终 Prompt"},
+            ]
+        },
     }
 
 
@@ -219,6 +259,37 @@ def stats() -> Dict[str, Any]:
         "requests": request_stats,
         "cache": {"size": len(answer_cache), **cache_stats},
         "sessions": {"active": memory_store.active_count(), "max": MAX_SESSIONS},
+    }
+
+
+@app.get("/observability/logs")
+def observability_logs(limit: int = 50) -> Dict[str, Any]:
+    safe_limit = max(1, min(limit, OBS_LOG_LIMIT))
+    entries = list(observability_log)[-safe_limit:]
+    return {"events": entries, "count": len(entries), "limit": OBS_LOG_LIMIT}
+
+
+@app.post("/observability/clear")
+def observability_clear() -> Dict[str, Any]:
+    cleared = len(observability_log)
+    observability_log.clear()
+    return {"cleared": cleared, "remaining": len(observability_log)}
+
+
+@app.get("/system")
+def system_info() -> Dict[str, Any]:
+    uptime_seconds = round(time.monotonic() - STARTED_AT, 2)
+    return {
+        "started_at": STARTED_AT_WALL,
+        "uptime_seconds": uptime_seconds,
+        "limits": {
+            "max_history_turns": MAX_HISTORY_TURNS,
+            "max_sessions": MAX_SESSIONS,
+            "cache_size": MAX_CACHE_ITEMS,
+        },
+        "cache": {"size": len(answer_cache), **cache_stats},
+        "sessions": {"active": memory_store.active_count(), "max": MAX_SESSIONS},
+        "observability": {"events": len(observability_log), "limit": OBS_LOG_LIMIT},
     }
 
 
@@ -233,6 +304,108 @@ def clear_session(req: SessionRequest) -> Dict[str, Any]:
         return {"cleared": True, "session_id": req.session_id}
     return {"cleared": False, "session_id": req.session_id}
 
+
+@app.get("/session/list")
+def list_sessions(limit: int = 50) -> Dict[str, Any]:
+    safe_limit = max(1, min(limit, MAX_SESSIONS))
+    return {"sessions": memory_store.list_sessions(safe_limit)}
+
+
+@app.post("/session/export")
+def export_session(req: SessionRequest) -> Dict[str, Any]:
+    history = memory_store.export(req.session_id)
+    return {
+        "session_id": req.session_id,
+        "history": history,
+        "missing": not bool(history),
+    }
+
+
+@app.post("/cache/clear")
+def clear_cache() -> Dict[str, Any]:
+    cleared = len(answer_cache)
+    answer_cache.clear()
+    cache_stats["hits"] = 0
+    cache_stats["misses"] = 0
+    return {"cleared": cleared, "cache_size": len(answer_cache)}
+
+
+@app.get("/router/explain")
+def router_explain(question: str, provider: Optional[str] = None, enable_router: bool = True) -> Dict[str, Any]:
+    chosen, reason = llm_manager.route(question, provider, enable_router)
+    return {"provider": chosen, "reason": reason}
+
+
+@app.post("/tools/run")
+def run_tool(req: ToolRunRequest) -> Dict[str, Any]:
+    tool = tool_registry.get(req.name.strip())
+    if not tool:
+        return {"ok": False, "error": f"未知工具：{req.name}"}
+    try:
+        result = tool.handler(req.payload or "")
+    except ValueError as exc:
+        return {"ok": False, "error": f"工具调用失败：{exc}"}
+    return {"ok": True, "output": result.output, "meta": result.meta}
+
+
+@app.post("/rag/preview")
+def rag_preview(req: RAGPreviewRequest) -> Dict[str, Any]:
+    docs = retrieve_documents(req.query, top_k=req.top_k)
+    return {
+        "query": req.query,
+        "count": len(docs),
+        "documents": docs,
+    }
+
+
+@app.post("/prompt/preview")
+def prompt_preview(req: PromptPreviewRequest) -> Dict[str, Any]:
+    system_prompt = req.system_prompt or DEFAULT_CUTE_SYSTEM_PROMPT
+    mode = (req.mode or "").strip().lower()
+    rag_context = ""
+    rag_meta: Dict[str, Any] = {}
+    if mode in {"advisor", "rag"}:
+        if not req.system_prompt:
+            system_prompt = ADVISOR_SYSTEM_PROMPT
+        rag_docs = retrieve_documents(req.question, top_k=req.top_k)
+        if rag_docs:
+            rag_context = "\n\n".join(
+                f"[{index + 1}] {doc['title']}\n{doc['content']}" for index, doc in enumerate(rag_docs)
+            )
+            rag_meta = {
+                "rag_docs": [doc["title"] for doc in rag_docs],
+                "rag_count": len(rag_docs),
+            }
+
+    session_id = req.session_id.strip() if req.session_id else None
+    history = memory_store.get(session_id) if session_id else []
+    history_prompt = "".join(f"用户：{user}\n助手：{reply}\n" for user, reply in history)
+
+    messages = []
+    if history_prompt:
+        messages.append(PromptMessage(role="用户", content=history_prompt))
+    messages.append(PromptMessage(role="用户", content="{question}"))
+    prompt_template = PromptTemplate(
+        system=system_prompt,
+        messages=messages,
+        variables={"question": req.question},
+    )
+    if rag_context:
+        prompt = (
+            f"{prompt_template.render()}\n\n"
+            f"请参考以下资料作答（不要逐字复述，保持结构化输出）：\n{rag_context}\n\n"
+            "助手："
+        )
+    else:
+        prompt = f"{prompt_template.render()}\n助手："
+    provider, route_reason = llm_manager.route(req.question, req.provider, req.enable_router)
+    return {
+        "prompt": prompt,
+        "mode": mode or "default",
+        "provider": provider,
+        "route_reason": route_reason,
+        **rag_meta,
+    }
 
 def _cache_get(key: Tuple[str, str]) -> Optional[str]:
     if key in answer_cache:
@@ -305,6 +478,7 @@ def _auto_tool(question: str) -> Optional[ToolResult]:
 def ask_question(req: QuestionRequest):
     # 取出用户输入的问题文本，便于后续处理
     question = req.question.strip()
+    request_id = str(uuid.uuid4())
     stream = req.stream
     include_meta = req.include_meta
     forced_stream_off = False
@@ -316,11 +490,11 @@ def ask_question(req: QuestionRequest):
     request_stats["total"] += 1
 
     def respond_text(answer: str, *, meta: Optional[Dict[str, Any]] = None):
+        headers = {"X-Request-ID": request_id}
         if stream:
             def answer_stream():
                 yield answer
 
-            headers = {}
             if meta:
                 headers["X-Answer-Source"] = meta.get("source", "")
                 headers["X-Cache-Hit"] = str(meta.get("cache_hit", False)).lower()
@@ -328,7 +502,7 @@ def ask_question(req: QuestionRequest):
         payload = {"answer": answer}
         if include_meta and meta:
             payload["meta"] = meta
-        return JSONResponse(payload)
+        return JSONResponse(payload, headers=headers)
 
     def update_history(session_key: Optional[str], answer: str):
         memory_store.append(session_key, question, answer)
@@ -338,6 +512,7 @@ def ask_question(req: QuestionRequest):
             "source": source,
             "cache_hit": cache_hit,
             "latency_ms": round((time.monotonic() - started) * 1000, 2),
+            "request_id": request_id,
         }
         if forced_stream_off:
             meta["stream_forced_off"] = True
@@ -345,15 +520,33 @@ def ask_question(req: QuestionRequest):
             meta.update(extra)
         return meta
 
+    def log_event(meta: Dict[str, Any]) -> None:
+        observability_log.append(
+            {
+                "request_id": meta.get("request_id"),
+                "source": meta.get("source"),
+                "latency_ms": meta.get("latency_ms"),
+                "cache_hit": meta.get("cache_hit"),
+                "provider": meta.get("provider"),
+                "route_reason": meta.get("route_reason"),
+                "question": question,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
     command_result = _handle_command(question)
     if command_result:
         answer, extra = command_result
         request_stats["rule"] += 1
-        return respond_text(answer, meta=build_meta("command", False, extra))
+        meta = build_meta("command", False, extra)
+        log_event(meta)
+        return respond_text(answer, meta=meta)
     # 规则 1：如果问题中出现“现在几点”或“今天日期”，直接返回当前时间
     if "现在几点" in question or "今天日期" in question:
         request_stats["rule"] += 1
-        return respond_text(get_time(), meta=build_meta("rule", False, {"tool": "time"}))
+        meta = build_meta("rule", False, {"tool": "time"})
+        log_event(meta)
+        return respond_text(get_time(), meta=meta)
 
     # 规则 2：如果问题符合 “a+b=?” 形式，解析出 a、b 并计算
     # 说明：下面这个正则允许空格和小数，比如 " 1 + 2 = ? "
@@ -364,13 +557,17 @@ def ask_question(req: QuestionRequest):
         right = float(math_match.group(2))
         # 计算完成后直接返回，避免走 LLM
         request_stats["rule"] += 1
-        return respond_text(str(add(left, right)), meta=build_meta("rule", False, {"tool": "add"}))
+        meta = build_meta("rule", False, {"tool": "add"})
+        log_event(meta)
+        return respond_text(str(add(left, right)), meta=meta)
 
     if req.enable_tools:
         tool_result = _auto_tool(question)
         if tool_result:
             request_stats["rule"] += 1
-            return respond_text(tool_result.output, meta=build_meta("tool", False, tool_result.meta))
+            meta = build_meta("tool", False, tool_result.meta)
+            log_event(meta)
+            return respond_text(tool_result.output, meta=meta)
 
     # 如果前端传了 system_prompt，就用它；
     # 否则使用默认的可爱语气 prompt。
@@ -420,7 +617,9 @@ def ask_question(req: QuestionRequest):
     if not session_id:
         cached_answer = _cache_get(cache_key)
         if cached_answer is not None:
-            return respond_text(cached_answer, meta=build_meta("cache", True, rag_meta))
+            meta = build_meta("cache", True, rag_meta)
+            log_event(meta)
+            return respond_text(cached_answer, meta=meta)
 
     config = LLMRequestConfig(
         temperature=req.temperature if req.temperature is not None else 0.7,
@@ -452,6 +651,7 @@ def ask_question(req: QuestionRequest):
         if not session_id:
             _cache_set(cache_key, answer)
         update_history(session_id, answer)
+        log_event(build_meta("llm", False, {**meta, **rag_meta}))
         return respond_text(
             answer,
             meta=build_meta("llm", False, {**meta, **rag_meta}),
@@ -476,7 +676,9 @@ def ask_question(req: QuestionRequest):
         if not session_id:
             _cache_set(cache_key, final_answer)
         update_history(session_id, final_answer)
+        log_event(build_meta("llm", False, {**meta, **rag_meta}))
 
     response = StreamingResponse(answer_stream(), media_type="text/plain; charset=utf-8")
     response.headers["X-Provider"] = req.provider or "auto"
+    response.headers["X-Request-ID"] = request_id
     return response

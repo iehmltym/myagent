@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI 架构升级控制台</title>
+  <title>林志玲今日值班AI小助手</title>
   <style>
     :root {
       --bg: #fff7ff;
@@ -446,6 +446,7 @@
       padding: 12px;
       font-size: 12px;
       color: var(--muted);
+      white-space: pre-wrap;
     }
 
     .form-hint {
@@ -464,14 +465,15 @@
   <div class="wrap">
     <div class="hero">
       <div>
-        <h1>🚀 AI 架构升级控制台</h1>
-        <p>为你的 Agent/RAG 项目输出「结构化建议 + 512MB 落地方案」。</p>
+        <h1>💖 林志玲今日值班AI小助手</h1>
+        <p>默认可爱模式，专注 512MB 轻量落地与架构升级建议。</p>
         <p class="muted">后端地址：<code id="apiBase"></code></p>
         <div class="hero-tags">
-          <span class="tag emphasis">架构建议模式</span>
+          <span class="tag emphasis">默认可爱模式</span>
+          <span class="tag">架构建议</span>
           <span class="tag">RAG 资料检索</span>
+          <span class="tag">512MB 轻量落地</span>
           <span class="tag">流式输出</span>
-          <span class="tag">轻量观测</span>
         </div>
       </div>
       <div class="hero-art">
@@ -523,6 +525,53 @@
           <span>🧷</span>
           <strong>Prompt 组件化</strong>
           <p>PromptTemplate + Messages 可复用可版本化。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">🚀 全部可升级能力清单（512MB 优化取向）</h3>
+      <p class="section-subtitle">默认可爱模式也能做重活：先轻量、再进阶，按 512MB 现实约束排序。</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span>🧠</span>
+          <strong>真实向量数据库 RAG</strong>
+          <p>离线 embedding + 外部向量库检索 + rerank，降低内存常驻。</p>
+        </div>
+        <div class="feature-card">
+          <span>🪞</span>
+          <strong>长记忆 / 长期对话存储</strong>
+          <p>短期窗口记忆 + 长期向量召回，建议外部存储。</p>
+        </div>
+        <div class="feature-card">
+          <span>🌈</span>
+          <strong>多 Provider 启用</strong>
+          <p>打通 OpenAI/Anthropic/Ollama，自动回退控成本。</p>
+        </div>
+        <div class="feature-card">
+          <span>📈</span>
+          <strong>可观测性增强</strong>
+          <p>补齐 trace / token / latency 指标，轻量日志先行。</p>
+        </div>
+        <div class="feature-card">
+          <span>🧭</span>
+          <strong>Router 更精细</strong>
+          <p>用分类器或质量评估优化路由，稳定且省钱。</p>
+        </div>
+        <div class="feature-card">
+          <span>🔐</span>
+          <strong>安全与治理</strong>
+          <p>API Key 校验、限流、审计日志、CORS 白名单管理。</p>
+        </div>
+        <div class="feature-card">
+          <span>🤖</span>
+          <strong>工具扩展与 Agent 化</strong>
+          <p>接入 HTTP/DB/任务编排，多步任务自动决策。</p>
+        </div>
+        <div class="feature-card">
+          <span>🎛️</span>
+          <strong>前端可配置体验</strong>
+          <p>结果对比、Prompt 版本管理、可视化评估。</p>
         </div>
       </div>
     </div>
@@ -666,6 +715,28 @@
     </div>
 
     <div class="card">
+      <h3 class="section-title">🛰️ 运营控制台（超轻量 512MB 友好）</h3>
+      <p class="section-subtitle">一键查看系统状态、近期请求、缓存与会话，运营更稳。</p>
+      <div class="action-bar">
+        <button class="ghost" onclick="loadSystemInfo()">刷新系统状态</button>
+        <button class="ghost" onclick="loadObservability()">拉取最近请求</button>
+        <button class="ghost" onclick="clearObservability()">清空请求日志</button>
+        <button class="ghost" onclick="clearCache()">清空回答缓存</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label>系统状态</label>
+          <pre id="systemInfo">等待查询...</pre>
+        </div>
+        <div>
+          <label>最近请求日志</label>
+          <pre id="observabilityEvents">等待查询...</pre>
+        </div>
+      </div>
+      <p class="muted">提示：日志与缓存均为内存级别，重启后会清空。</p>
+    </div>
+
+    <div class="card">
       <label>回答</label>
       <pre id="ans">这里会显示 AI 的回答～</pre>
       <div id="metaPanel" class="meta">元信息会显示在这里。</div>
@@ -804,6 +875,58 @@
       }
     }
 
+    async function loadSystemInfo() {
+      const panel = document.getElementById("systemInfo");
+      panel.textContent = "加载中...";
+      try {
+        const resp = await fetch(`${apiBase}/system`);
+        if (!resp.ok) throw new Error("无法获取系统状态");
+        const data = await resp.json();
+        panel.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        panel.textContent = "系统状态获取失败，请稍后重试。";
+      }
+    }
+
+    async function loadObservability() {
+      const panel = document.getElementById("observabilityEvents");
+      panel.textContent = "加载中...";
+      try {
+        const resp = await fetch(`${apiBase}/observability/logs?limit=20`);
+        if (!resp.ok) throw new Error("无法获取观测日志");
+        const data = await resp.json();
+        panel.textContent = JSON.stringify(data.events || [], null, 2);
+      } catch (e) {
+        panel.textContent = "观测日志获取失败，请稍后重试。";
+      }
+    }
+
+    async function clearObservability() {
+      const panel = document.getElementById("observabilityEvents");
+      panel.textContent = "清空中...";
+      try {
+        const resp = await fetch(`${apiBase}/observability/clear`, { method: "POST" });
+        if (!resp.ok) throw new Error("无法清空日志");
+        const data = await resp.json();
+        panel.textContent = `已清空 ${data.cleared} 条日志。`;
+      } catch (e) {
+        panel.textContent = "清空失败，请稍后重试。";
+      }
+    }
+
+    async function clearCache() {
+      const panel = document.getElementById("systemInfo");
+      panel.textContent = "清空中...";
+      try {
+        const resp = await fetch(`${apiBase}/cache/clear`, { method: "POST" });
+        if (!resp.ok) throw new Error("无法清空缓存");
+        const data = await resp.json();
+        panel.textContent = `缓存已清空，清除 ${data.cleared} 条，剩余 ${data.cache_size}。`;
+      } catch (e) {
+        panel.textContent = "清空失败，请稍后重试。";
+      }
+    }
+
     async function clearSession() {
       const sessionId = sessionInput.value.trim();
       if (!sessionId) {
@@ -936,6 +1059,8 @@
     loadCommands();
     loadBlueprint();
     loadStats();
+    loadSystemInfo();
+    loadObservability();
 
     styleChips.forEach((chip) => {
       chip.addEventListener("click", () => {

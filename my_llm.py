@@ -38,13 +38,13 @@ class MyGeminiLLM:
             # load_google_api_key() 会去项目根目录的 .env 读取 GOOGLE_API_KEY
             MyGeminiLLM._shared_client = genai.Client(api_key=load_google_api_key())
             MyGeminiLLM._configured = True
+        self.client = MyGeminiLLM._shared_client
 
         if not MyGeminiLLM._shared_model_name:
             # 自动选择一个当前账号可用且支持 generateContent 的模型名
             MyGeminiLLM._shared_model_name = self._select_available_model()
 
         self.model_name = MyGeminiLLM._shared_model_name
-        self.client = MyGeminiLLM._shared_client
 
     def _select_available_model(self) -> str:
         """

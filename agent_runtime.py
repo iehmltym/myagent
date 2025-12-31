@@ -193,7 +193,7 @@ class GeminiProvider(LLMProvider):
         if not self._client:
             yield self._unavailable_message()
             return
-        return self._client.generate_stream(
+        yield from self._client.generate_stream(
             prompt,
             temperature=config.temperature,
             max_output_tokens=config.max_output_tokens,
